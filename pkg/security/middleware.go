@@ -20,6 +20,8 @@ const (
 	MethodHeartbeat         = "/zerotrust.fl.v1.CoordinatorService/Heartbeat"
 	MethodGetGlobalModel    = "/zerotrust.fl.v1.CoordinatorService/GetGlobalModel"
 	MethodSubmitLocalUpdate = "/zerotrust.fl.v1.CoordinatorService/SubmitLocalUpdate"
+	MethodHealthCheck       = "/grpc.health.v1.Health/Check"
+	MethodHealthWatch       = "/grpc.health.v1.Health/Watch"
 )
 
 type MethodRule struct {
@@ -162,6 +164,14 @@ func DefaultMethodRules() map[string]MethodRule {
 		MethodSubmitLocalUpdate: {
 			Roles:               []string{"edge-worker", "admin"},
 			RequireRegistration: true,
+		},
+		MethodHealthCheck: {
+			Roles:               []string{"edge-worker", "observer", "admin"},
+			RequireRegistration: false,
+		},
+		MethodHealthWatch: {
+			Roles:               []string{"edge-worker", "observer", "admin"},
+			RequireRegistration: false,
 		},
 	}
 }

@@ -1,0 +1,33 @@
+FROM golang:1.27-alpine AS builder
+
+RUN apk add --no-cache protobuf
+WORKDIR /src
+
+COPY go.mod ./
+RUN go mod download
+
+COPY . .
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2 \
+    && protoc \
+        --go_out=. --go_opt=module=github.com/smshagor-dev/ZeroTrust-FL-Sim \
+        --go-grpc_out=. --go-grpc_opt=module=github.com/smshagor-dev/ZeroTrust-FL-Sim \
+        proto/fl_service.proto \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/certgen ./security
+
+FROM ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.55 AS health-probe
+
+FROM alpine:3.24 AS runtime
+
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S -g 10001 ztfl \
+    && adduser -S -D -H -u 10001 -G ztfl ztfl
+
+COPY --from=builder /out/coordinator /usr/local/bin/coordinator
+COPY --from=builder /out/certgen /usr/local/bin/certgen
+COPY --from=health-probe /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
+
+USER 10001:10001
+EXPOSE 50051
+ENTRYPOINT ["/usr/local/bin/coordinator"]

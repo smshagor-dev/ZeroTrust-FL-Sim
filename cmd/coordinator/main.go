@@ -16,6 +16,8 @@ import (
 	"github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/coordinator"
 	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func main() {
@@ -81,6 +83,11 @@ func main() {
 	)
 	flv1.RegisterCoordinatorServiceServer(grpcServer, service)
 
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthServer.SetServingStatus("zerotrust.fl.v1.CoordinatorService", healthpb.HealthCheckResponse_SERVING)
+
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
 		logger.Error("listen for coordinator connections", "address", *listenAddress, "error", err)
@@ -105,6 +112,9 @@ func main() {
 	case <-signalContext.Done():
 		logger.Info("shutting down coordinator")
 	}
+
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+	healthServer.SetServingStatus("zerotrust.fl.v1.CoordinatorService", healthpb.HealthCheckResponse_NOT_SERVING)
 
 	gracefulDone := make(chan struct{})
 	go func() {
