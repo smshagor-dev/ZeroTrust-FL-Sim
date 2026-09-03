@@ -2,6 +2,9 @@
 #ifdef ZTFL_HAS_CKKS
 #include "ckks_secure_aggregation.hpp"
 #endif
+#ifdef ZTFL_HAS_CUDA
+#include "cuda_aggregation.hpp"
+#endif
 
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -9,6 +12,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -19,6 +23,9 @@ namespace py = pybind11;
 namespace aggregation = zerotrust::fl::aggregation;
 #ifdef ZTFL_HAS_CKKS
 namespace privacy = zerotrust::fl::privacy;
+#endif
+#ifdef ZTFL_HAS_CUDA
+namespace cuda_aggregation = zerotrust::fl::aggregation::cuda;
 #endif
 
 namespace {
@@ -177,6 +184,14 @@ PYBIND11_MODULE(zerotrust_fl_cpp, module) {
 #else
     module.attr("ckks_enabled") = false;
 #endif
+#ifdef ZTFL_HAS_CUDA
+    module.attr("cuda_enabled") = true;
+    module.attr("cuda_trimmed_mean_max_clients") = cuda_aggregation::kMaxTrimmedMeanClients;
+#else
+    module.attr("cuda_enabled") = false;
+    module.attr("cuda_trimmed_mean_max_clients") = 0;
+#endif
+    module.attr("simd_backend") = aggregation::simd_backend();
 
     module.def(
         "krum_aggregate",
@@ -212,6 +227,89 @@ coordinate before averaging the retained values.
         py::arg("updates"),
         "Compute the coordinate-wise median of model updates."
     );
+
+#ifdef ZTFL_HAS_CUDA
+    module.def(
+        "cuda_runtime_version",
+        &cuda_aggregation::runtime_version,
+        "Return the linked CUDA Runtime version as an integer."
+    );
+
+    module.def(
+        "_cuda_pairwise_distances",
+        [](std::uintptr_t pointer_table_device,
+           std::uintptr_t distances_device,
+           std::size_t client_count,
+           std::size_t dimension,
+           std::uintptr_t stream) {
+            cuda_aggregation::launch_pairwise_distances(
+                pointer_table_device,
+                distances_device,
+                client_count,
+                dimension,
+                stream
+            );
+        },
+        py::arg("pointer_table_device"),
+        py::arg("distances_device"),
+        py::arg("client_count"),
+        py::arg("dimension"),
+        py::arg("stream") = 0,
+        "Internal raw-pointer CUDA pairwise-distance launcher."
+    );
+
+    module.def(
+        "_cuda_trimmed_mean",
+        [](std::uintptr_t pointer_table_device,
+           std::uintptr_t output_device,
+           std::size_t client_count,
+           std::size_t dimension,
+           float beta,
+           std::uintptr_t stream) {
+            cuda_aggregation::launch_trimmed_mean(
+                pointer_table_device,
+                output_device,
+                client_count,
+                dimension,
+                beta,
+                stream
+            );
+        },
+        py::arg("pointer_table_device"),
+        py::arg("output_device"),
+        py::arg("client_count"),
+        py::arg("dimension"),
+        py::arg("beta"),
+        py::arg("stream") = 0,
+        "Internal raw-pointer CUDA trimmed-mean launcher."
+    );
+
+    module.def(
+        "_cuda_average_selected",
+        [](std::uintptr_t pointer_table_device,
+           std::uintptr_t selected_indices_device,
+           std::uintptr_t output_device,
+           std::size_t selected_count,
+           std::size_t dimension,
+           std::uintptr_t stream) {
+            cuda_aggregation::launch_average_selected(
+                pointer_table_device,
+                selected_indices_device,
+                output_device,
+                selected_count,
+                dimension,
+                stream
+            );
+        },
+        py::arg("pointer_table_device"),
+        py::arg("selected_indices_device"),
+        py::arg("output_device"),
+        py::arg("selected_count"),
+        py::arg("dimension"),
+        py::arg("stream") = 0,
+        "Internal raw-pointer CUDA selected-update averaging launcher."
+    );
+#endif
 
 #ifdef ZTFL_HAS_CKKS
     module.def(
