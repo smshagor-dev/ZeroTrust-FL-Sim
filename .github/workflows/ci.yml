@@ -23,8 +23,6 @@ jobs:
         with:
           go-version: '1.27.1'
           cache: false
-      - name: Hydrate Go module checksums
-        run: go mod tidy
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Install Go protobuf plugins
@@ -33,6 +31,8 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
       - name: Generate Go protobuf code
         run: make proto
+      - name: Hydrate Go module checksums
+        run: go mod tidy
       - name: Format Go
         run: |
           go fmt ./...
