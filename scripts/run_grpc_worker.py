@@ -13,6 +13,14 @@ from torch import nn
 
 from zerotrust_fl.attacks import AttackConfig, PoisoningAttack
 from zerotrust_fl.client import GrpcWorkerClient, GrpcWorkerConfig, UpdateMetrics
+from zerotrust_fl.privacy import LocalDPConfig, RDPAccountant, protect_model_update
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +40,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=int(os.getenv("ZTFL_WORKER_SEED", "42")))
     parser.add_argument("--health-file", default=os.getenv("ZTFL_HEALTH_FILE", "/tmp/ztfl-worker.ready"))
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--dp",
+        action=argparse.BooleanOptionalAction,
+        default=_env_flag("ZTFL_DP_ENABLED", False),
+        help="apply release-level Local Differential Privacy before SubmitLocalUpdate",
+    )
+    parser.add_argument(
+        "--dp-clip-norm",
+        type=float,
+        default=float(os.getenv("ZTFL_DP_CLIP_NORM", "1.0")),
+    )
+    parser.add_argument(
+        "--dp-noise-multiplier",
+        type=float,
+        default=float(os.getenv("ZTFL_DP_NOISE_MULTIPLIER", "1.0")),
+    )
+    parser.add_argument(
+        "--dp-delta",
+        type=float,
+        default=float(os.getenv("ZTFL_DP_DELTA", "1e-5")),
+    )
+    parser.add_argument(
+        "--dp-adjacency",
+        choices=["replace", "add_remove"],
+        default=os.getenv("ZTFL_DP_ADJACENCY", "replace"),
+    )
     return parser.parse_args()
 
 
@@ -49,6 +83,14 @@ def main() -> None:
         server_name_override=args.server_name,
         timeout_seconds=10.0,
     )
+    local_dp = LocalDPConfig(
+        enabled=bool(args.dp),
+        clip_norm=args.dp_clip_norm,
+        noise_multiplier=args.dp_noise_multiplier,
+        delta=args.dp_delta,
+        adjacency=args.dp_adjacency,
+    )
+    accountant = RDPAccountant(local_dp)
 
     attack = PoisoningAttack(
         AttackConfig(
@@ -77,8 +119,13 @@ def main() -> None:
                 seed=args.seed + cycle * 10_007,
                 round_id=int(model.round_id),
             )
-            response = client.submit_update(
+            protected = protect_model_update(
                 update,
+                local_dp,
+                seed=args.seed + cycle * 104_729 + 17_171,
+            )
+            response = client.submit_update(
+                protected.update,
                 round_id=int(model.round_id),
                 base_model_version=str(model.model_version),
                 metrics=metrics,
@@ -86,9 +133,18 @@ def main() -> None:
             if not response.accepted:
                 raise RuntimeError(f"coordinator rejected update: {response.reason}")
             client.heartbeat(str(model.model_version))
+
+            privacy_text = "dp=off"
+            if local_dp.enabled:
+                accountant.step()
+                epsilon, order = accountant.epsilon()
+                privacy_text = (
+                    f"dp=on eps={epsilon:.6f} delta={local_dp.delta:g} "
+                    f"order={order:g} noise_std={local_dp.noise_std:.6f}"
+                )
             print(
                 f"node={args.node_id} attack={args.attack} update={response.update_id} "
-                f"loss={metrics.loss:.6f}",
+                f"loss={metrics.loss:.6f} {privacy_text}",
                 flush=True,
             )
             cycle += 1
