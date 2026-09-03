@@ -1,11 +1,11 @@
 # ZeroTrust-FL-Sim
 
 <p align="center">
-  <strong>Zero-Trust Federated Learning with Byzantine-Robust Aggregation, Local Differential Privacy, CKKS Encrypted Computation, and Post-Quantum Transport</strong>
+  <strong>Zero-Trust Federated Learning with Byzantine Resilience, DP + CKKS Privacy, PQC Transport, SIMD/CUDA Acceleration, Chaos Engineering, and Full Observability</strong>
 </p>
 
 <p align="center">
-  A reproducible research platform for secure federated learning under non-IID data, asynchronous execution, malicious clients, gradient/model-update leakage, Byzantine poisoning, zero-trust network controls, and post-quantum transport.
+  A reproducible research platform for federated learning under non-IID data, malicious clients, privacy leakage, network faults, node churn, coordinated Byzantine attacks, and zero-trust transport constraints.
 </p>
 
 <p align="center">
@@ -13,8 +13,12 @@
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Python-%E2%89%A53.12-3776AB?logo=python&logoColor=white" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/PyTorch-2.14.0-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch 2.14.0">
+  <img src="https://img.shields.io/badge/CPU-AVX--512%20%7C%20NEON-4C8BF5" alt="AVX-512 and NEON">
+  <img src="https://img.shields.io/badge/GPU-CUDA%20Optional-76B900?logo=nvidia&logoColor=white" alt="CUDA optional">
   <img src="https://img.shields.io/badge/Privacy-RDP%20%2B%20CKKS-7B1FA2" alt="RDP and CKKS">
   <img src="https://img.shields.io/badge/PQC-ML--KEM%20%2B%20ML--DSA-6f42c1" alt="PQC ML-KEM ML-DSA">
+  <img src="https://img.shields.io/badge/Chaos-Chaos%20Mesh-D32F2F" alt="Chaos Mesh">
+  <img src="https://img.shields.io/badge/Telemetry-OpenTelemetry%20%2B%20Prometheus-F46800" alt="OpenTelemetry and Prometheus">
   <a href="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/workflows/ci.yml">
     <img src="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/workflows/ci.yml/badge.svg" alt="CI">
   </a>
@@ -24,67 +28,52 @@
 
 ## Initial Information
 
-**ZeroTrust-FL-Sim** is a software-only federated-learning security testbed. It separates learning robustness, privacy, encrypted computation, identity, authorization, and transport security so each guarantee can be measured independently.
+**ZeroTrust-FL-Sim** is a software-only federated-learning security and resilience testbed. It deliberately separates learning robustness, privacy, encrypted computation, CPU/GPU acceleration, identity, transport security, failure injection, and observability so each claim can be tested independently.
 
 The repository currently combines:
 
 - deterministic IID and Dirichlet non-IID partitioning;
 - asynchronous persistent PyTorch worker processes;
-- SGD/Adam local training and simulated compute/network delay;
-- label-flipping, Gaussian, sign-flipping, and adaptive poisoning attacks;
+- SGD/Adam local training with simulated compute/network delay;
+- label-flip, Gaussian, sign-flip, adaptive, and **round-synchronized Byzantine collusion** attacks;
 - native C++20 Krum, Multi-Krum, trimmed mean, and coordinate median;
-- OpenMP/SIMD native acceleration through `pybind11`;
-- **release-level Local Differential Privacy** using L2 clipping + Gaussian noise + Rényi-DP accounting;
-- **CKKS homomorphic encrypted addition** in the C++20 core using Microsoft SEAL 4.4.3;
-- separated CKKS client/public-key, ciphertext-only server aggregation, and secret-key decryptor roles;
-- TLS 1.3 mutual authentication;
-- hybrid ML-KEM key exchange with `off`, `prefer`, and `require` policies;
-- optional ML-DSA-65 X.509 identities for strict post-quantum mTLS;
-- certificate-bound JWT identity and role-based gRPC authorization;
-- Docker Compose testbed, automated verification, and micro-benchmarks.
+- OpenMP parallelism with runtime-dispatched **AVX-512** or **ARM NEON** squared-distance kernels and scalar fallback;
+- optional device-resident **CUDA Krum/Multi-Krum and trimmed-mean kernels** for contiguous PyTorch CUDA tensors;
+- release-level Local Differential Privacy using L2 clipping + Gaussian noise + Rényi-DP accounting;
+- CKKS homomorphic encrypted addition using Microsoft SEAL 4.4.3;
+- TLS 1.3 mTLS, certificate-bound JWT authorization, hybrid ML-KEM, and optional ML-DSA identities;
+- **Chaos Mesh** profiles for 50% packet loss, network jitter, and random worker pod failure;
+- OpenTelemetry distributed tracing in the Go coordinator and Python gRPC workers;
+- Prometheus metrics for training time, RPC latency, memory, aggregation time, node churn, and poisoning mitigation;
+- an opt-in **Grafana + Prometheus + Tempo + OpenTelemetry Collector** stack with a provisioned `dashboard.json`;
+- Docker Compose testbeds, CI validation, reproducible benchmarks, and security-focused documentation.
 
-### Threats addressed by the privacy layer
-
-A plaintext model update can leak training information through gradient/model inversion and related inference attacks. The new privacy layer uses two different protections:
-
-1. **LDP:** limits what can be inferred from an honest client's released update even when a recipient can see the released vector.
-2. **CKKS:** prevents the aggregation server from seeing individual plaintext updates while still allowing encrypted addition.
-
-These are complementary, not interchangeable. CKKS does not create a DP guarantee, and DP does not hide the noisy update from its recipient.
-
-> **Scope:** this repository does not claim universal protection against compromised endpoints, a client that deliberately bypasses its local privacy mechanism, stolen decryption keys, malicious trusted CAs, arbitrary backdoors, Byzantine populations above algorithm assumptions, or future cryptanalytic breaks.
+> **Scope:** 50% Byzantine collusion is intentionally an extreme stress regime. It exceeds the fault assumptions of Krum and should be used to study degradation/failure behavior, not to claim a resilience guarantee at 50% adversarial control.
 
 ---
 
-## System Architecture
+# System Architecture
 
 ```mermaid
 flowchart TD
     D["Dataset<br/>Synthetic / Fashion-MNIST / CIFAR-10"] --> P["IID / Dirichlet partition"]
 
-    subgraph Client["Client / Worker"]
-        T["Local SGD / Adam"] --> A["Optional poisoning model"]
-        A --> C["L2 clip to C"]
-        C --> N["Gaussian LDP noise"]
-        N --> E["Optional CKKS public-key encryption"]
+    subgraph Worker["Python Client / Worker"]
+        T["Local SGD / Adam"] --> A["Optional poisoning / collusion"]
+        A --> DP["L2 clip + Gaussian LDP"]
     end
 
     P --> T
 
-    subgraph Plain["Plaintext robust path"]
-        R["Krum / Multi-Krum / Trimmed Mean / Median"]
+    subgraph Aggregate["Aggregation Plane"]
+        CPU["C++20<br/>OpenMP + AVX-512 / NEON"]
+        GPU["CUDA<br/>device-resident PyTorch tensors"]
+        FHE["CKKS ciphertext-only additive aggregation"]
     end
 
-    subgraph FHE["Encrypted additive path"]
-        S["CKKS ciphertext-only server addition"]
-        K["Separate key authority / decryptor"]
-        S --> K
-    end
-
-    N --> R
-    E --> S
-    R --> G["Global model update"]
-    K --> G
+    DP --> CPU
+    DP --> GPU
+    DP --> FHE
 
     subgraph Control["Go Zero-Trust Control Plane"]
         PQ["Hybrid ML-KEM"] --> TLS["TLS 1.3 mTLS"]
@@ -93,28 +82,44 @@ flowchart TD
         RBAC --> GRPC["gRPC Coordinator"]
     end
 
-    Client <-->|"authenticated secure transport"| GRPC
+    Worker <-->|"authenticated gRPC"| GRPC
+
+    subgraph Observe["Resilience & Observability"]
+        CM["Chaos Mesh"]
+        OT["OpenTelemetry Collector"]
+        PR["Prometheus"]
+        TP["Tempo"]
+        GF["Grafana"]
+        OT --> TP --> GF
+        PR --> GF
+    end
+
+    Worker --> OT
+    GRPC --> OT
+    Worker --> PR
+    GRPC --> PR
+    CM -. "loss / jitter / churn" .-> Worker
 ```
 
-The current Go coordinator validates and accepts FL updates but does not perform model aggregation or advance the global model. CKKS is therefore implemented in the native aggregation layer rather than falsely treating the Go control-plane service as an FHE aggregator.
+The Go coordinator is the authenticated network/control plane. It validates and accepts updates but does **not** perform native model aggregation or advance the global FL model. Aggregation CPU/GPU memory and poisoning-mitigation metrics therefore originate from the telemetry-enabled local simulator, while worker network/training metrics and coordinator RPC metrics originate from the distributed control-plane processes.
 
 ---
 
 # Federated Learning Model
 
-For client `k` with local data `D_k`, the local objective is:
+For client `k` with local data `D_k`:
 
 ```math
 F_k(W)=\frac{1}{N_k}\sum_{i=1}^{N_k}\ell(W;x_{k,i},y_{k,i}).
 ```
 
-At round `t`, client `k` produces model delta:
+At round `t`:
 
 ```math
 \Delta_k^{(t)}=W_k^{(t)}-W^{(t)}.
 ```
 
-Plain FedAvg-style weighted aggregation is:
+A weighted mean update is:
 
 ```math
 \widehat{\Delta}^{(t)}
@@ -127,24 +132,131 @@ The model advances as:
 W^{(t+1)}=W^{(t)}+\widehat{\Delta}^{(t)}.
 ```
 
+For class `c`, Dirichlet non-IID partitioning samples:
+
+```math
+\mathbf{p}^{(c)}\sim\mathrm{Dir}_K(\alpha\mathbf{1}_K).
+```
+
+Smaller `alpha` produces stronger client class skew; larger `alpha` approaches IID-like allocation.
+
+---
+
+# Byzantine Attack and Robust Aggregation Model
+
+Supported attack modes:
+
+```text
+none
+label_flip
+gaussian
+sign_flip
+adaptive
+collusion
+```
+
+For sign flip:
+
+```math
+\widetilde{g}_i=-\gamma g_i.
+```
+
+For additive Gaussian poisoning:
+
+```math
+\widetilde{W}_i=W_i+\mathcal{N}(0,\sigma^2 I).
+```
+
+The coordinated collusion stress mode uses a shared round direction. With model dimension `d`, shared sign vector `s_t` with entries in `{-1,+1}`, local update `g_i`, and scale `gamma`:
+
+```math
+\widetilde{g}_i^{(t)}
+=\gamma\lVert g_i^{(t)}\rVert_2
+\frac{s_t}{\sqrt{d}}.
+```
+
+All colluding clients with the same `collusion_seed` use the same `s_t` during a round.
+
+## Krum and Multi-Krum
+
+Krum requires:
+
+```math
+n\ge2f+3.
+```
+
+The score for client `i` is:
+
+```math
+S_i=\sum_{j\in\mathcal{N}_i}\lVert W_i-W_j\rVert_2^2,
+```
+
+where `N_i` contains the `n-f-2` nearest other updates. Multi-Krum averages the lowest-score candidates.
+
+## Trimmed mean
+
+The implementation removes:
+
+```math
+b=\lfloor\beta n\rfloor
+```
+
+values from both coordinate tails and averages the retained `n-2b` values.
+
+## Coordinate median
+
+Median is coordinate-wise rather than a geometric/spatial median.
+
+---
+
+# SIMD and CUDA Acceleration
+
+The native aggregation core keeps OpenMP for outer parallelism and adds explicit CPU SIMD runtime dispatch for the Krum distance hot path:
+
+```text
+x86/x86-64 + supported compiler + CPU AVX-512/FMA -> avx512
+AArch64                                        -> neon
+otherwise                                      -> scalar
+```
+
+Runtime dispatch prevents an AVX-512 optimized build from blindly executing unsupported instructions on another CPU.
+
+For Krum, pairwise distance complexity remains:
+
+```math
+T_{Krum}=O(n^2d).
+```
+
+SIMD and CUDA reduce the constant factor/parallel execution time; they do not change that asymptotic complexity.
+
+The CUDA path consumes existing contiguous `torch.float32` CUDA tensor `data_ptr()` storage directly. It does not stage model-sized updates through CPU memory. PyTorch CUDA IPC-mapped tensors can use the same native pointer path after PyTorch has safely established the shared mapping.
+
+For billion-scale dimensions, CUDA Krum distance computation is parameter-chunked rather than assigning only one block per client pair, allowing high GPU occupancy even when `n` is small.
+
+Build controls:
+
+```text
+ZTFL_ENABLE_CUDA=AUTO   # default; enable when a CUDA compiler is found
+ZTFL_ENABLE_CUDA=ON     # CUDA is required
+ZTFL_ENABLE_CUDA=OFF    # portable CPU-only build
+```
+
+Detailed design: [`docs/accelerated-aggregation.md`](docs/accelerated-aggregation.md).
+
 ---
 
 # Local Rényi Differential Privacy
 
-The worker applies privacy protection **after local training/optional simulated attack and before the update leaves the client process**. The same order is used by the long-lived gRPC worker immediately before `SubmitLocalUpdate`.
-
-## Clipping
-
-For raw update `u` and clipping radius `C`:
+Before an honest client's update leaves the process, the release-level LDP path clips:
 
 ```math
 \bar{u}=u\cdot\min\left(1,\frac{C}{\lVert u\rVert_2}\right).
 ```
 
-Replacement adjacency uses the conservative release-level sensitivity bound:
+Replacement adjacency uses:
 
 ```math
-\Delta_2\le 2C.
+\Delta_2\le2C.
 ```
 
 Add/remove adjacency uses:
@@ -153,23 +265,13 @@ Add/remove adjacency uses:
 \Delta_2\le C.
 ```
 
-## Gaussian mechanism
-
 With noise multiplier `sigma`:
 
 ```math
-\tilde{u}=\bar{u}+\mathcal{N}\left(0,\sigma^2\Delta_2^2 I\right).
+\widetilde{u}=\bar{u}+\mathcal{N}\left(0,\sigma^2\Delta_2^2I\right).
 ```
 
-Therefore the coordinate noise standard deviation is:
-
-```math
-\sigma_{noise}=\sigma\Delta_2.
-```
-
-## Rényi-DP accounting
-
-For the full-participation Gaussian mechanism (`q=1`), one release at RDP order `alpha>1` has:
+For a full-participation Gaussian mechanism at RDP order `alpha>1`:
 
 ```math
 \varepsilon_{RDP}(\alpha)=\frac{\alpha}{2\sigma^2}.
@@ -181,7 +283,7 @@ For `T` releases:
 \varepsilon_{RDP}^{(T)}(\alpha)=T\frac{\alpha}{2\sigma^2}.
 ```
 
-Conversion to an `(epsilon, delta)` upper bound uses:
+Conversion to an `(epsilon, delta)` upper bound:
 
 ```math
 \varepsilon(\delta)=
@@ -192,62 +294,17 @@ Conversion to an `(epsilon, delta)` upper bound uses:
 \right].
 ```
 
-The simulator searches configured RDP orders and reports the minimum bound.
+Example with replacement adjacency, `C=1`, `sigma=2`, `T=10`, `delta=1e-5`: sensitivity is `2`, coordinate noise standard deviation is `4`, and at `alpha=8` the converted bound is approximately `11.6447`. The runtime searches configured orders and may report a smaller valid bound.
 
-## DP calculation example
-
-Use replacement adjacency with:
-
-```text
-C = 1
-sigma = 2
-T = 10 releases
-delta = 1e-5
-```
-
-Sensitivity:
-
-```math
-\Delta_2=2C=2.
-```
-
-Noise standard deviation:
-
-```math
-\sigma_{noise}=\sigma\Delta_2=2\times2=4.
-```
-
-At `alpha=8`:
-
-```math
-\varepsilon_{RDP}^{(10)}(8)
-=10\frac{8}{2\times2^2}
-=10.
-```
-
-Conversion at that order:
-
-```math
-\varepsilon
-=10+\frac{\ln(10^5)}{7}
-\approx11.6447.
-```
-
-This is an example at one order. The runtime accountant evaluates all configured orders and may return a smaller valid bound.
-
-### Important DP boundary
-
-This is **release-level Local DP for the whole model-update vector**, not per-example DP-SGD. It protects a clipped update release under the configured adjacency definition. If per-training-example privacy is required during local optimization, a per-sample-gradient mechanism such as DP-SGD is a separate requirement.
-
-Deterministic seeds are used only to make simulator experiments reproducible. Production clients must use a cryptographically appropriate random source.
+This is whole-update release-level LDP, not per-example DP-SGD.
 
 ---
 
 # CKKS Homomorphic Encrypted Aggregation
 
-The live native backend uses **Microsoft SEAL 4.4.3** directly. TenSEAL 0.3.17 is retained as an optional experimentation/interoperability extra; its current release reports Microsoft SEAL 4.3.3, while the SEAL 4.4.x line contains the newer security hardening.
+The native encrypted path uses Microsoft SEAL 4.4.3. TenSEAL remains an optional interoperability/experimentation extra.
 
-Default CKKS profile:
+Default profile:
 
 ```text
 poly_modulus_degree = 8192
@@ -256,107 +313,48 @@ scale = 2^40
 slots_per_ciphertext = 4096
 ```
 
-CKKS is approximate arithmetic, so decrypted values can contain small numerical error.
-
-## Key separation
-
-The native API intentionally separates roles:
-
-- `CKKSKeyMaterial.generate()` — key authority creates parameters/public/secret keys;
-- `CKKSClientEncryptor` — client receives public material only;
-- `CKKSServerAggregator` — server receives parameters + ciphertexts only;
-- `CKKSDecryptor` — secret key remains outside the aggregation server.
-
-For client update `u_i` with weight `w_i`:
+For client update `u_i` and weight `w_i`:
 
 ```math
 c_i=Enc_{pk}(w_i u_i).
 ```
 
-The aggregation server performs only encrypted addition:
+The server performs ciphertext-only addition:
 
 ```math
 c_{sum}=\sum_i c_i
 =Enc_{pk}\left(\sum_iw_i u_i\right).
 ```
 
-A separate decryptor recovers the weighted mean:
+A separate decryptor obtains the weighted mean:
 
 ```math
-u_{avg}
-=\frac{Dec_{sk}(c_{sum})}{\sum_iw_i}.
+u_{avg}=\frac{Dec_{sk}(c_{sum})}{\sum_iw_i}.
 ```
 
-The server-side aggregation class has no secret-key input.
-
-## CKKS chunk calculation
-
-For flattened model dimension `d`, with 4096 CKKS slots per ciphertext:
+For dimension `d`, ciphertext chunk count is:
 
 ```math
 N_{chunks}=\left\lceil\frac{d}{4096}\right\rceil.
 ```
 
-For `d=10^7` parameters:
+For `d=10,000,000`:
 
 ```math
-N_{chunks}
-=\left\lceil\frac{10,000,000}{4096}\right\rceil
-=2442.
+N_{chunks}=2442.
 ```
 
-This is a **ciphertext count**, not a byte-size estimate. Serialized ciphertext size depends on SEAL parameters, ciphertext level, and serialization configuration and should be benchmarked directly.
+This is a ciphertext count, not serialized byte size.
 
-## Why CKKS does not replace Byzantine aggregation
+CKKS addition does not implement Krum/median/trimmed-mean comparisons; encrypted Byzantine-robust comparison requires a different cryptographic protocol.
 
-The encrypted path currently supports additive sum/weighted FedAvg-style operations. Existing Krum, Multi-Krum, median, and trimmed-mean methods require distance comparison, selection, sorting, or order statistics. Those are not equivalent to simple CKKS addition.
-
-Therefore:
-
-- **plaintext robust path:** Krum / Multi-Krum / trimmed mean / median;
-- **encrypted additive path:** CKKS sum / weighted mean.
-
-Fully encrypted Byzantine-robust comparison requires a different protocol such as MPC, comparison circuits, trusted execution, or specialized approximate comparison methods.
-
-Detailed privacy design: [`docs/privacy-rdp-ckks.md`](docs/privacy-rdp-ckks.md).
-
----
-
-# Native C++20 Byzantine-Robust Aggregation
-
-The module `zerotrust_fl_cpp` exposes:
-
-```text
-krum_aggregate
-trimmed_mean_aggregate
-median_aggregate
-ckks_generate_key_material
-ckks_encrypt
-ckks_add
-ckks_decrypt
-```
-
-Krum requires:
-
-```math
-n\ge 2f+3.
-```
-
-Its score for client `i` is the sum of squared Euclidean distances to its `n-f-2` closest peers:
-
-```math
-S_i=\sum_{j\in\mathcal{N}_i}\lVert W_i-W_j\rVert_2^2.
-```
-
-Multi-Krum averages the `m` lowest-score candidates. Trimmed mean removes `floor(beta*n)` values from each coordinate tail. Median is coordinate-wise median.
-
-Detailed native aggregation design: [`docs/native-aggregation.md`](docs/native-aggregation.md).
+Detailed design: [`docs/privacy-rdp-ckks.md`](docs/privacy-rdp-ckks.md).
 
 ---
 
 # Post-Quantum Zero-Trust Transport
 
-The Go control plane uses TLS 1.3 mTLS and exposes three PQC policies:
+The Go control plane exposes:
 
 | Mode | Hybrid ML-KEM | Classical fallback |
 | --- | --- | --- |
@@ -364,60 +362,255 @@ The Go control plane uses TLS 1.3 mTLS and exposes three PQC policies:
 | `prefer` | preferred | yes |
 | `require` | required | no |
 
-Strict post-quantum identity mode additionally requires ML-DSA leaf certificates.
+Strict identity mode can additionally require ML-DSA certificates.
 
 For `X25519MLKEM768`, raw key-share sizes are:
 
 ```text
 classical X25519:       32 + 32 =   64 bytes
 X25519MLKEM768 hybrid: 1216 + 1120 = 2336 bytes
-absolute increase:                    2272 bytes
-combined multiplier:                  36.5x
+increase:                              2272 bytes
+combined multiplier:                    36.5x
 ```
 
-The calculation is:
+```math
+\Delta B=2336-64=2272\ \mathrm{bytes}.
+```
 
 ```math
-\Delta B=2336-64=2272\ \mathrm{bytes},
-\qquad
 R=\frac{2336}{64}=36.5.
 ```
 
-These numbers cover raw TLS key shares only, not certificates, TLS records, TCP/IP, HTTP/2, gRPC, or FL payloads.
+These numbers cover raw key shares only, not the complete TLS/gRPC request.
 
-Detailed transport design: [`docs/pqc-transport.md`](docs/pqc-transport.md).
+Detailed design: [`docs/pqc-transport.md`](docs/pqc-transport.md).
 
 ---
 
-# Data Heterogeneity and Attack Model
+# Resilience & Observability Stack
 
-For class `c`, non-IID allocation samples:
+## Chaos Mesh failure injection
+
+The Kubernetes interface under `deploy/chaos/chaos-mesh/` contains:
+
+| Profile | Configuration |
+| --- | --- |
+| 50% packet loss | bidirectional `loss: 50`, 25% correlation, 60 s |
+| Network jitter | 150 ms latency, 100 ms jitter, 50% correlation, 60 s |
+| Node churn | `PodChaos` `pod-failure`, random max 50% of workers, 30 s |
+
+Worker pods are selected by:
+
+```text
+namespace: zerotrust-fl
+app.kubernetes.io/component: worker
+```
+
+### Packet-loss calculation
+
+Under an idealized independent-loss model with `p=0.5`, delivery within `k` attempts is:
 
 ```math
-\mathbf{p}^{(c)}\sim\mathrm{Dir}_K(\alpha\mathbf{1}_K).
+P_{delivery}(k)=1-p^k.
 ```
 
-Small `alpha` creates stronger heterogeneity; large `alpha` approaches IID-like allocation.
+For three attempts:
 
-Supported attack modes:
+```math
+P_{delivery}(3)=1-0.5^3=0.875.
+```
+
+The actual Chaos Mesh profile has correlated loss, while TCP/gRPC also performs retransmission/congestion-control behavior, so `0.875` is **not** a prediction of measured RPC success.
+
+### Node-churn calculation
+
+The simulator exports:
+
+```math
+C_t=\frac{F_t+S_t}{N_t},
+```
+
+where `F_t` is failed clients, `S_t` is stragglers, and `N_t` is selected clients.
+
+### Why 50% Byzantine collusion is extreme
+
+Set `f=n/2` in Krum's requirement:
+
+```math
+n\ge2f+3
+\Rightarrow
+n\ge2(n/2)+3
+\Rightarrow
+n\ge n+3.
+```
+
+This cannot be satisfied. The 50% collusion mode intentionally measures how the system fails or degrades outside the theorem's fault bound.
+
+## Poisoning mitigation metric
+
+Let the benign-only mean be `g_b`, the robust aggregate be `g_r`, and the naive all-client mean be `g_m`:
+
+```math
+e_r=\lVert g_r-g_b\rVert_2,
+\qquad
+e_m=\lVert g_m-g_b\rVert_2.
+```
+
+The simulator's mitigation score is:
+
+```math
+M_t=\mathrm{clip}\left(1-\frac{e_r}{e_m},0,1\right).
+```
+
+An attacked round is considered mitigated when:
+
+```math
+e_r<e_m.
+```
+
+Running mitigation rate:
+
+```math
+R_{mitigation}
+=\frac{\text{mitigated attacked rounds}}{\text{attacked rounds}}.
+```
+
+This is empirical robustness telemetry, not a proof.
+
+---
+
+# OpenTelemetry + Prometheus + Grafana
+
+The live instrumentation is split by responsibility:
+
+- **Go coordinator:** OTel gRPC server spans + Prometheus RPC latency/request counters;
+- **Python gRPC worker:** parent worker-cycle spans, automatic gRPC client spans, epoch/update time, client-observed RPC latency, process/GPU memory, accepted/rejected update counters;
+- **local simulator:** round spans, aggregation spans, aggregator CPU/GPU memory overhead, churn rate, mitigation score/rate.
+
+Important metrics:
 
 ```text
-none
-label_flip
-gaussian
-sign_flip
-adaptive
+ztfl_epoch_duration_seconds
+ztfl_network_latency_seconds
+ztfl_grpc_server_latency_seconds
+ztfl_aggregation_duration_seconds
+ztfl_aggregator_cpu_memory_overhead_bytes
+ztfl_aggregator_gpu_memory_overhead_bytes
+ztfl_process_resident_memory_bytes
+ztfl_gpu_memory_bytes
+ztfl_node_churn_rate
+ztfl_poisoning_mitigation_score
+ztfl_poisoning_mitigation_rate
+ztfl_updates_total
 ```
 
-Supported robust aggregators:
+CPU aggregation memory overhead is currently the non-negative RSS before/after delta:
+
+```math
+\Delta M_{CPU}=\max(0,RSS_{after}-RSS_{before}).
+```
+
+It is not a sampled peak-RSS profiler.
+
+CUDA overhead uses PyTorch peak allocation above the pre-aggregation baseline:
+
+```math
+\Delta M_{GPU}=\max(0,M_{peak}-M_{before}).
+```
+
+The preconfigured dashboard is:
 
 ```text
-mean
-krum
-multi_krum
-trimmed_mean
-median
+observability/grafana/dashboards/dashboard.json
 ```
+
+It contains live panels for epoch time, network/gRPC latency, CPU/GPU memory overhead, aggregation time, node churn, poisoning mitigation score, and poisoning mitigation rate. It does not contain fabricated benchmark values.
+
+Detailed design: [`docs/resilience-observability.md`](docs/resilience-observability.md).
+
+---
+
+# Run the Observability Stack
+
+The stack is opt-in:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.observability.yml \
+  up -d --build
+```
+
+Provisioned components:
+
+```text
+OpenTelemetry Collector 0.159.0
+Grafana Tempo            3.0.3
+Prometheus               3.14.0
+Grafana                  13.2.0
+```
+
+Local endpoints:
+
+```text
+Grafana       http://localhost:3000
+Prometheus    http://localhost:9090
+Tempo API     http://localhost:3200
+OTLP/gRPC     localhost:4317
+OTLP/HTTP     localhost:4318
+```
+
+The overlay also starts a synthetic 50% collusion simulator so aggregator memory/mitigation dashboard panels have a valid metric source. This simulator is distinct from the Go network control plane.
+
+Stop:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.observability.yml \
+  down -v --remove-orphans
+```
+
+---
+
+# Run Chaos Experiments
+
+Install Chaos Mesh in the Kubernetes cluster first, then ensure worker pods have the required label.
+
+50% packet loss:
+
+```bash
+kubectl apply -f deploy/chaos/chaos-mesh/network-loss-50.yaml
+```
+
+Network jitter:
+
+```bash
+kubectl apply -f deploy/chaos/chaos-mesh/network-jitter.yaml
+```
+
+Random node churn:
+
+```bash
+kubectl apply -f deploy/chaos/chaos-mesh/node-churn.yaml
+```
+
+50% coordinated Byzantine simulator:
+
+```bash
+python scripts/run_fl_sim.py \
+  --clients 20 \
+  --clients-per-round 20 \
+  --min-results 20 \
+  --malicious-fraction 0.50 \
+  --attack collusion \
+  --collusion-scale 8 \
+  --aggregator median \
+  --rounds 10 \
+  --telemetry
+```
+
+Run one infrastructure fault at a time before combining failures; otherwise causal attribution becomes difficult.
 
 ---
 
@@ -426,24 +619,40 @@ median
 ```text
 ZeroTrust-FL-Sim/
 ├── .github/workflows/ci.yml
-├── benchmarks/benchmark_suite.py
+├── benchmarks/
+│   ├── benchmark_suite.py
+│   └── benchmark_acceleration.py
 ├── cmd/coordinator/
 ├── cpp/
 │   ├── include/
 │   │   ├── byzantine_aggregator.hpp
-│   │   └── ckks_secure_aggregation.hpp
+│   │   ├── ckks_secure_aggregation.hpp
+│   │   ├── cuda_aggregation.hpp
+│   │   └── simd_distance.hpp
 │   └── src/
+│       ├── aggregator_pybind.cpp
 │       ├── byzantine_aggregator.cpp
 │       ├── ckks_secure_aggregation.cpp
-│       └── aggregator_pybind.cpp
+│       ├── cuda_aggregation.cu
+│       └── simd_distance.cpp
+├── deploy/chaos/
+│   ├── README.md
+│   └── chaos-mesh/
+│       ├── network-loss-50.yaml
+│       ├── network-jitter.yaml
+│       └── node-churn.yaml
 ├── docker/
 │   ├── Dockerfile.coordinator
 │   └── Dockerfile.worker
+├── docker-compose.yml
+├── docker-compose.observability.yml
 ├── docs/
+│   ├── accelerated-aggregation.md
 │   ├── fl-simulation.md
 │   ├── native-aggregation.md
 │   ├── pqc-transport.md
 │   ├── privacy-rdp-ckks.md
+│   ├── resilience-observability.md
 │   └── security-transport.md
 ├── fl/zerotrust_fl/
 │   ├── aggregators/
@@ -451,23 +660,31 @@ ZeroTrust-FL-Sim/
 │   ├── client/
 │   ├── data/
 │   ├── engine/
+│   ├── observability/
 │   ├── privacy/
-│   │   ├── rdp.py
-│   │   └── ckks.py
 │   └── protocols/
-├── pkg/security/
-├── proto/fl_service.proto
+├── observability/
+│   ├── otel-collector.yaml
+│   ├── prometheus.yml
+│   ├── tempo.yaml
+│   └── grafana/
+│       ├── dashboards/dashboard.json
+│       └── provisioning/
+├── pkg/
+│   ├── coordinator/
+│   ├── observability/
+│   └── security/
 ├── scripts/
 │   ├── demo_ckks_secure_aggregation.py
-│   ├── generate_python_proto.py
 │   ├── run_fl_sim.py
 │   ├── run_grpc_worker.py
 │   └── verify_system.sh
-├── security/certgen.go
 └── tests/
     ├── security_test.go
+    ├── test_acceleration.py
     ├── test_cpp_aggregator.py
     ├── test_fl_engine.py
+    ├── test_observability.py
     └── test_privacy.py
 ```
 
@@ -475,17 +692,17 @@ ZeroTrust-FL-Sim/
 
 # Requirements
 
-- Go 1.27.1 or compatible newer release
+- Go 1.27.1+
 - Python 3.12+
 - PyTorch 2.14.0
 - C++20 compiler
 - CMake 3.24+
 - pybind11 3.1.x
-- Git available at native-build time when CKKS is enabled
 - Protocol Buffers compiler
-- Docker Compose v2 for the container testbed
-
-The CKKS build fetches the pinned Microsoft SEAL source through CMake `FetchContent`. Set `ZTFL_ENABLE_CKKS=OFF` for a minimal native build that does not fetch SEAL.
+- Git at native-build time when CKKS is enabled
+- Docker Compose v2 for container testbeds
+- optional CUDA toolkit/compiler for the CUDA native backend
+- optional Kubernetes + Chaos Mesh for infrastructure fault injection
 
 ---
 
@@ -502,113 +719,29 @@ python scripts/generate_python_proto.py
 ZTFL_ENABLE_CKKS=ON pip install -e .
 ```
 
-Windows PowerShell activation:
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
 Verify native features:
 
 ```bash
-python -c "import zerotrust_fl_cpp as n; print(n.__version__, n.openmp_enabled, n.ckks_enabled)"
+python -c "import zerotrust_fl_cpp as n; print(n.__version__, n.openmp_enabled, n.simd_backend, n.ckks_enabled, n.cuda_enabled)"
 ```
 
-Portable CPU build:
+Force portable CPU build:
 
 ```bash
-ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CKKS=ON pip install -e .
+ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CUDA=OFF ZTFL_ENABLE_CKKS=ON pip install -e .
 ```
 
-Minimal build without CKKS:
+Require CUDA build:
 
 ```bash
-ZTFL_ENABLE_CKKS=OFF pip install -e .
-```
-
-Optional TenSEAL experimentation:
-
-```bash
-pip install -e '.[tenseal]'
-```
-
----
-
-# Run Local DP Simulation
-
-```bash
-python scripts/run_fl_sim.py \
-  --dataset synthetic \
-  --clients 10 \
-  --rounds 10 \
-  --partition dirichlet \
-  --alpha 0.3 \
-  --aggregator mean \
-  --dp \
-  --dp-clip-norm 1.0 \
-  --dp-noise-multiplier 2.0 \
-  --dp-delta 1e-5 \
-  --dp-adjacency replace
-```
-
-The command prints the configured sensitivity/noise standard deviation and a conservative per-client composed RDP budget assuming participation in every configured round.
-
-For the long-lived gRPC worker:
-
-```bash
-ZTFL_DP_ENABLED=true \
-ZTFL_DP_CLIP_NORM=1.0 \
-ZTFL_DP_NOISE_MULTIPLIER=2.0 \
-ZTFL_DP_DELTA=1e-5 \
-python scripts/run_grpc_worker.py
-```
-
----
-
-# Run CKKS Secure Aggregation Demo
-
-```bash
-python scripts/demo_ckks_secure_aggregation.py \
-  --dimension 10000 \
-  --clients 4
-```
-
-The demo reports:
-
-- model dimension;
-- CKKS slots per ciphertext;
-- ciphertext chunk count;
-- maximum/mean absolute approximate-decoding error;
-- confirmation that the aggregation server has no secret-key role.
-
-Python API example:
-
-```python
-from zerotrust_fl.privacy import (
-    CKKSClientEncryptor,
-    CKKSDecryptor,
-    CKKSKeyMaterial,
-    CKKSServerAggregator,
-)
-
-keys = CKKSKeyMaterial.generate()
-public = keys.public_bundle()
-client = CKKSClientEncryptor(public)
-server = CKKSServerAggregator(public.parameters)
-decryptor = CKKSDecryptor(keys)
-
-c1 = client.encrypt([1.0, 2.0], weight=100)
-c2 = client.encrypt([3.0, 4.0], weight=50)
-encrypted_sum = server.aggregate([c1, c2])
-weighted_mean = decryptor.decrypt_weighted_mean(encrypted_sum)
+ZTFL_ENABLE_CUDA=ON pip install -e .
 ```
 
 ---
 
 # Go Coordinator and PQC
 
-Generate interoperable development PKI:
+Generate development PKI:
 
 ```bash
 go run ./security -out certs/dev
@@ -620,12 +753,19 @@ Run hybrid-preferred mode:
 go run ./cmd/coordinator -pqc-mode prefer
 ```
 
-Strict Go-to-Go ML-KEM + ML-DSA:
+Enable trace export to a local collector:
 
 ```bash
-go run ./security \
-  -out certs/pqc \
-  -certificate-algorithm mldsa65
+ZTFL_OTEL_ENDPOINT=localhost:4317 \
+ZTFL_OTEL_INSECURE=true \
+ZTFL_METRICS_ADDRESS=127.0.0.1:9464 \
+go run ./cmd/coordinator -pqc-mode prefer
+```
+
+Strict ML-KEM + ML-DSA:
+
+```bash
+go run ./security -out certs/pqc -certificate-algorithm mldsa65
 
 go run ./cmd/coordinator \
   -server-cert certs/pqc/server.crt \
@@ -638,26 +778,13 @@ go run ./cmd/coordinator \
 
 ---
 
-# Docker Testbed
-
-```bash
-mkdir -p benchmarks/results
-docker compose build
-docker compose up -d --wait
-docker compose ps
-```
-
-Stop:
-
-```bash
-docker compose down -v --remove-orphans
-```
-
-The worker image builds the same CKKS-enabled native extension used by Python CI. Local DP remains configurable at worker runtime rather than hard-coded into the image.
-
----
-
 # Testing
+
+Resilience/observability tests:
+
+```bash
+pytest tests/test_observability.py -q
+```
 
 Privacy tests:
 
@@ -681,68 +808,87 @@ go vet ./...
 go test -v ./...
 ```
 
+Validate the observability Compose overlay:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.observability.yml \
+  config >/dev/null
+```
+
 Full verification:
 
 ```bash
 ./scripts/verify_system.sh
 ```
 
-The privacy tests cover:
-
-- clipping before Gaussian noise;
-- deterministic simulation-seed reproducibility;
-- RDP composition/conversion math;
-- CKKS public/secret role separation;
-- encrypted weighted mean correctness;
-- vectors requiring multiple CKKS ciphertext chunks.
-
 ---
 
-# Performance Benchmarks
+# Performance and Complexity
 
-```bash
-python benchmarks/benchmark_suite.py --profile full
-```
-
-The existing suite measures native aggregation, mTLS transport overhead, and convergence under malicious fractions. New DP/CKKS measurements should report actual encryption/decryption latency, ciphertext serialization size, aggregation latency, and accuracy impact rather than relying on hardware-independent estimates.
-
-For ordinary float32 updates with `n` clients and model dimension `d`:
+For ordinary float32 updates with `n` clients and dimension `d`:
 
 ```math
 M_{updates}=4nd\ \mathrm{bytes}.
 ```
 
-Krum's distance matrix adds:
+Krum's double-precision distance matrix requires approximately:
 
 ```math
 M_{distance}=8n^2\ \mathrm{bytes}.
 ```
 
-Do not apply these plaintext memory formulas to CKKS ciphertexts.
+Baseline complexities:
+
+| Aggregator | Complexity |
+| --- | --- |
+| Krum | `O(n^2 d)` |
+| Multi-Krum | `O(n^2 d + md)` |
+| trimmed mean | `O(d n log n)` |
+| coordinate median | expected approximately `O(dn)` selection work |
+
+Idealized parallel Krum distance work over `P` effective workers is:
+
+```math
+T_{parallel}\approx O\left(\frac{n^2d}{P}\right),
+```
+
+subject to memory bandwidth, scheduling, synchronization, GPU occupancy, transfer/launch costs, and the nonparallel fraction.
+
+Run benchmark suites:
+
+```bash
+python benchmarks/benchmark_suite.py --profile full
+python benchmarks/benchmark_acceleration.py
+```
+
+Do not apply plaintext memory formulas to CKKS ciphertext storage.
 
 ---
 
-# Security Assumptions and Limitations
+# Security, Resilience, and Measurement Boundaries
 
 ## Assumptions
 
-- trust anchors and private authentication keys remain uncompromised;
-- CKKS secret key remains outside the aggregation-server process;
-- honest LDP clients execute clipping/noise exactly as configured;
-- the privacy accountant uses the same adjacency/noise/release assumptions as the experiment;
-- strict PQC claims use `pqc-mode=require`;
-- strict PQC identity claims use ML-DSA certificates;
-- Byzantine bound `f` matches robust-aggregation assumptions.
+- trust anchors/private authentication keys remain uncompromised;
+- CKKS secret keys remain outside the ciphertext-only aggregation role;
+- honest LDP clients execute clipping/noise as configured;
+- strict PQC claims use `pqc-mode=require` and strict PQC identity claims use ML-DSA certificates;
+- Byzantine guarantee claims stay within the selected algorithm's `f` assumptions;
+- Chaos Mesh selectors are restricted to the intended test namespace/workers;
+- OTLP plaintext mode is used only on a trusted isolated observability network or replaced with authenticated TLS remotely.
 
 ## Not implied
 
-- Release-level LDP is not per-example DP-SGD.
-- CKKS encrypted addition is not Byzantine-robust comparison.
-- PQC transport does not protect a compromised endpoint.
-- FHE does not replace authentication, RBAC, mTLS, replay protection, or model-integrity controls.
-- A ciphertext-only server API does not by itself provide threshold decryption or distributed key custody.
-
-Future production FHE wire integration should additionally bind ciphertexts to round/model IDs, enforce payload limits, authenticate key IDs, rotate keys, prevent replay, and authorize aggregate decryption.
+- release-level LDP is not per-example DP-SGD;
+- CKKS additive aggregation is not encrypted Krum/median comparison;
+- AVX-512/CUDA changes performance, not the mathematical fault bound;
+- 50% collusion is not within Krum's formal fault assumption;
+- Prometheus/Grafana measurements are not formal security guarantees;
+- CPU RSS before/after delta is not a true peak-memory profiler;
+- tracing does not participate in authentication or authorization decisions;
+- PQC transport does not protect compromised endpoints.
 
 ---
 
@@ -752,37 +898,30 @@ Record at minimum:
 
 - Git commit SHA;
 - Python/PyTorch/Go/CMake/compiler versions;
-- Microsoft SEAL version and CKKS parameter set;
-- `ZTFL_ENABLE_CKKS` state;
-- OpenMP/native-architecture state;
+- SIMD backend and OpenMP state;
+- CUDA runtime/device and `ZTFL_ENABLE_CUDA` state;
+- Microsoft SEAL version/CKKS parameters;
 - dataset, partition strategy, and Dirichlet `alpha`;
-- client count, malicious fraction, attack type, and Byzantine bound;
-- LDP adjacency, clip norm, noise multiplier, delta, and actual release count;
-- RDP orders and reported epsilon;
-- CKKS model dimension, slot count, ciphertext chunk count, and measured approximation error;
+- client count, malicious fraction, attack/collusion seed and scale;
+- Byzantine bound `f`, aggregator, backend, `k`, and trim ratio;
+- LDP adjacency, clip norm, noise multiplier, delta, release count, and RDP orders;
 - PQC policy, negotiated TLS group, and certificate algorithm;
-- random seeds and federated round count.
-
-Useful commands:
-
-```bash
-git rev-parse HEAD
-go version
-python --version
-python -c "import torch; print(torch.__version__)"
-cmake --version
-python -c "import zerotrust_fl_cpp as n; print('OpenMP:', n.openmp_enabled, 'CKKS:', n.ckks_enabled)"
-```
+- Chaos Mesh profile names/durations/selectors;
+- OTel/Prometheus/Grafana component versions;
+- random seeds and round count.
 
 ---
 
 # Documentation
 
-- [`docs/privacy-rdp-ckks.md`](docs/privacy-rdp-ckks.md) — LDP/RDP and CKKS design, calculations, key separation, boundaries.
-- [`docs/pqc-transport.md`](docs/pqc-transport.md) — ML-KEM/ML-DSA transport design and wire-size math.
+- [`docs/accelerated-aggregation.md`](docs/accelerated-aggregation.md) — AVX-512/NEON/CUDA design and zero-copy boundary.
+- [`docs/resilience-observability.md`](docs/resilience-observability.md) — Chaos Mesh, collusion, OTel, Prometheus, Grafana, metrics calculations.
+- [`deploy/chaos/README.md`](deploy/chaos/README.md) — Chaos Mesh run profiles.
+- [`docs/privacy-rdp-ckks.md`](docs/privacy-rdp-ckks.md) — LDP/RDP and CKKS.
+- [`docs/pqc-transport.md`](docs/pqc-transport.md) — ML-KEM/ML-DSA transport and wire-size math.
 - [`docs/security-transport.md`](docs/security-transport.md) — mTLS, identity, JWT, RBAC.
-- [`docs/native-aggregation.md`](docs/native-aggregation.md) — native robust aggregation.
-- [`docs/fl-simulation.md`](docs/fl-simulation.md) — FL simulation runtime.
+- [`docs/native-aggregation.md`](docs/native-aggregation.md) — robust native aggregation.
+- [`docs/fl-simulation.md`](docs/fl-simulation.md) — asynchronous FL simulator.
 
 ---
 
@@ -796,6 +935,6 @@ This repository currently does **not** declare a repository license. No open-sou
 
 **GitHub:** https://github.com/smshagor-dev/ZeroTrust-FL-Sim
 
-ZeroTrust-FL-Sim is designed to keep each security claim explicit and independently testable:
+The project keeps the research pipeline explicit:
 
-**non-IID learning → adversarial updates → local DP → plaintext robust aggregation or CKKS encrypted addition → post-quantum mTLS → zero-trust authorization → reproducible verification**.
+**non-IID learning → adversarial/colluding updates → Local DP → robust or CKKS aggregation → SIMD/CUDA acceleration → PQC mTLS + zero-trust authorization → chaos injection → OpenTelemetry/Prometheus measurement → Grafana analysis**.
