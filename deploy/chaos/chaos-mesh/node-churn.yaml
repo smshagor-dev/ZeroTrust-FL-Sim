@@ -1,0 +1,18 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: ztfl-worker-random-churn
+  namespace: zerotrust-fl
+  labels:
+    app.kubernetes.io/part-of: zerotrust-fl-sim
+    chaos.zerotrust-fl/scenario: node-churn
+spec:
+  action: pod-failure
+  mode: random-max-percent
+  value: "50"
+  selector:
+    namespaces:
+      - zerotrust-fl
+    labelSelectors:
+      app.kubernetes.io/component: worker
+  duration: "30s"
