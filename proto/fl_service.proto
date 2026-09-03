@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package zerotrust.fl.v1;
+
+option go_package = "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1;flv1";
+
+service CoordinatorService {
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc GetGlobalModel(GetGlobalModelRequest) returns (GlobalModel);
+  rpc SubmitLocalUpdate(SubmitLocalUpdateRequest) returns (SubmitLocalUpdateResponse);
+}
+
+message HardwareProfile {
+  string architecture = 1;
+  string operating_system = 2;
+  uint32 logical_cpus = 3;
+  uint64 memory_bytes = 4;
+  string accelerator = 5;
+  uint64 accelerator_memory_bytes = 6;
+  repeated string capabilities = 7;
+}
+
+message SecurityMetadata {
+  string bearer_token = 1;
+  bytes detached_signature = 2;
+  string signature_algorithm = 3;
+  string key_id = 4;
+  int64 issued_at_unix = 5;
+  bytes nonce = 6;
+}
+
+message RegisterNodeRequest {
+  string node_id = 1;
+  string certificate_common_name = 2;
+  HardwareProfile hardware = 3;
+  SecurityMetadata security = 4;
+  repeated string requested_capabilities = 5;
+}
+
+message RegisterNodeResponse {
+  bool accepted = 1;
+  string registration_id = 2;
+  string assigned_role = 3;
+  int64 lease_expires_unix = 4;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string registration_id = 2;
+  string observed_model_version = 3;
+  SecurityMetadata security = 4;
+}
+
+message HeartbeatResponse {
+  bool accepted = 1;
+  int64 server_time_unix = 2;
+  string current_model_version = 3;
+  int64 lease_expires_unix = 4;
+}
+
+message GetGlobalModelRequest {
+  string node_id = 1;
+  string registration_id = 2;
+  string known_model_version = 3;
+  SecurityMetadata security = 4;
+}
+
+message GlobalModel {
+  string model_version = 1;
+  uint64 round_id = 2;
+  bytes weights_payload = 3;
+  string weights_format = 4;
+  bytes sha256 = 5;
+  int64 created_at_unix = 6;
+}
+
+message LocalUpdateMetrics {
+  uint32 dynamic_epochs = 1;
+  double loss = 2;
+  repeated double gradient_norms = 3;
+  uint64 sample_count = 4;
+  uint64 training_duration_ms = 5;
+}
+
+message SubmitLocalUpdateRequest {
+  string node_id = 1;
+  string registration_id = 2;
+  uint64 round_id = 3;
+  string base_model_version = 4;
+  bytes weights_payload = 5;
+  string weights_format = 6;
+  bytes update_sha256 = 7;
+  LocalUpdateMetrics metrics = 8;
+  SecurityMetadata security = 9;
+}
+
+message SubmitLocalUpdateResponse {
+  bool accepted = 1;
+  string update_id = 2;
+  string reason = 3;
+  string current_model_version = 4;
+}
