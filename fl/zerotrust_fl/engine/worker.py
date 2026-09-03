@@ -16,6 +16,7 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from zerotrust_fl.attacks.poisoning import AttackConfig, PoisoningAttack
+from zerotrust_fl.privacy.rdp import LocalDPConfig, protect_model_update
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,7 @@ class WorkerConfig:
     seed: int = 42
     malicious: bool = False
     attack: AttackConfig = field(default_factory=AttackConfig)
+    local_dp: LocalDPConfig = field(default_factory=LocalDPConfig)
 
     def __post_init__(self) -> None:
         if not self.node_id.strip():
@@ -98,6 +100,10 @@ class WorkerResult:
     simulated_latency_ms: int
     malicious: bool
     attack_kind: str
+    dp_original_norm: float | None = None
+    dp_clipped_norm: float | None = None
+    dp_noise_std: float | None = None
+    dp_epsilon_per_release: float | None = None
     error: str | None = None
 
     @property
@@ -281,6 +287,13 @@ def _execute_training_round(
     if not torch.isfinite(update).all():
         raise FloatingPointError("worker produced a non-finite model update")
 
+    protected = protect_model_update(
+        update,
+        config.local_dp,
+        seed=round_seed + 47_117,
+    )
+    update = protected.update
+
     training_duration_ms = int((time.perf_counter() - started) * 1000)
     post_network = _sample_delay(rng, config.network_delay_seconds)
     if post_network:
@@ -298,6 +311,12 @@ def _execute_training_round(
         simulated_latency_ms=int((pre_network + compute_delay + post_network) * 1000),
         malicious=config.malicious,
         attack_kind=config.attack.kind if config.malicious else "none",
+        dp_original_norm=protected.original_norm if config.local_dp.enabled else None,
+        dp_clipped_norm=protected.clipped_norm if config.local_dp.enabled else None,
+        dp_noise_std=protected.noise_std if config.local_dp.enabled else None,
+        dp_epsilon_per_release=(
+            protected.epsilon_per_release if config.local_dp.enabled else None
+        ),
     )
 
 
