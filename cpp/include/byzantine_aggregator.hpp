@@ -26,4 +26,6 @@ struct UpdateView {
     std::span<const UpdateView> updates
 );
 
+[[nodiscard]] const char* simd_backend() noexcept;
+
 }  // namespace zerotrust::fl::aggregation
