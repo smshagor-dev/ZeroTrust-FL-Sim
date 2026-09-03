@@ -27,26 +27,26 @@ type PeerIdentity struct {
 }
 
 type ServerTLSOptions struct {
-	CertificateFile     string
-	PrivateKeyFile      string
-	ClientCAFile        string
-	TrustDomain         string
-	AllowedClientRoles  []string
-	ClientSPKIPins      []string
-	PQCMode             PQCMode
-	RequirePQCIdentity  bool
+	CertificateFile    string
+	PrivateKeyFile     string
+	ClientCAFile       string
+	TrustDomain        string
+	AllowedClientRoles []string
+	ClientSPKIPins     []string
+	PQCMode            PQCMode
+	RequirePQCIdentity bool
 }
 
 type ClientTLSOptions struct {
-	CertificateFile     string
-	PrivateKeyFile      string
-	RootCAFile          string
-	ServerName          string
-	TrustDomain         string
-	ExpectedServerRole  string
-	ServerSPKIPins      []string
-	PQCMode             PQCMode
-	RequirePQCIdentity  bool
+	CertificateFile    string
+	PrivateKeyFile     string
+	RootCAFile         string
+	ServerName         string
+	TrustDomain        string
+	ExpectedServerRole string
+	ServerSPKIPins     []string
+	PQCMode            PQCMode
+	RequirePQCIdentity bool
 }
 
 func ServerTransportCredentials(opts ServerTLSOptions) (credentials.TransportCredentials, error) {
