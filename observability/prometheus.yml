@@ -15,3 +15,8 @@ scrape_configs:
           - benign-worker-2:9465
           - benign-worker-3:9465
           - malicious-worker-1:9465
+
+  - job_name: zerotrust-fl-simulator
+    static_configs:
+      - targets:
+          - fl-simulator:9466
