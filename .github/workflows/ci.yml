@@ -56,7 +56,7 @@ jobs:
       - name: Install compiler toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-12 g++-12
+          sudo apt-get install -y gcc-12 g++-12 git
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
@@ -69,13 +69,21 @@ jobs:
           CXX: g++-12
           ZTFL_NATIVE_ARCH: 'OFF'
           ZTFL_ENABLE_OPENMP: 'ON'
+          ZTFL_ENABLE_CKKS: 'ON'
         run: python -m pip install -e .
+      - name: Test privacy and CKKS path
+        run: python -m pytest -q tests/test_privacy.py
+      - name: Verify native module features
+        run: >-
+          python -c "import zerotrust_fl_cpp as native;
+          print('version:', native.__version__);
+          print('OpenMP:', native.openmp_enabled);
+          print('CKKS:', native.ckks_enabled);
+          assert native.ckks_enabled"
       - name: Lint Python
         run: ruff check fl scripts tests benchmarks
       - name: Test Python and native extension
         run: python -m pytest -q --cov=zerotrust_fl --cov-report=term-missing --cov-report=xml
-      - name: Verify native module import
-        run: python -c "import zerotrust_fl_cpp as native; print('OpenMP:', native.openmp_enabled)"
 
   integration:
     name: Docker integration and benchmark smoke
