@@ -43,6 +43,7 @@ vendor/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyd
 .venv/
 venv/
 env/

@@ -1,14 +1,18 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(
-    zerotrust_agg
-    VERSION 0.1.0
+    zerotrust_fl_cpp
+    VERSION 0.2.0
     LANGUAGES CXX
 )
+
+option(ZTFL_ENABLE_OPENMP "Enable OpenMP parallel aggregation" ON)
+option(ZTFL_NATIVE_ARCH "Optimize generated code for the local CPU" ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(
     Python
@@ -30,26 +34,76 @@ find_package(
     HINTS "${PYBIND11_CMAKE_DIR}"
 )
 
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python")
+if(ZTFL_ENABLE_OPENMP)
+    find_package(OpenMP QUIET COMPONENTS CXX)
+endif()
+
+if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python")
+endif()
+if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python")
+endif()
 
 foreach(CONFIG Debug Release RelWithDebInfo MinSizeRel)
     string(TOUPPER "${CONFIG}" CONFIG_UPPER)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_BINARY_DIR}/python")
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_BINARY_DIR}/python")
+    if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER})
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+    endif()
+    if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER})
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    endif()
 endforeach()
 
-pybind11_add_module(
-    zerotrust_agg
-    MODULE
-    src/bindings.cpp
+add_library(
+    zerotrust_aggregation_core
+    STATIC
+    src/byzantine_aggregator.cpp
 )
 
-target_compile_features(zerotrust_agg PRIVATE cxx_std_20)
-target_include_directories(zerotrust_agg PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(
+    zerotrust_aggregation_core
+    PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
+target_compile_features(zerotrust_aggregation_core PUBLIC cxx_std_20)
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(zerotrust_aggregation_core PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(zerotrust_aggregation_core PUBLIC ZTFL_HAS_OPENMP=1)
+endif()
+
+pybind11_add_module(
+    zerotrust_fl_cpp
+    MODULE
+    src/aggregator_pybind.cpp
+)
+
+target_link_libraries(zerotrust_fl_cpp PRIVATE zerotrust_aggregation_core)
+target_compile_features(zerotrust_fl_cpp PRIVATE cxx_std_20)
 
 if(MSVC)
-    target_compile_options(zerotrust_agg PRIVATE /W4 /permissive-)
+    target_compile_options(zerotrust_aggregation_core PRIVATE /O2 /W4 /permissive-)
+    target_compile_options(zerotrust_fl_cpp PRIVATE /O2 /W4 /permissive-)
 else()
-    target_compile_options(zerotrust_agg PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(zerotrust_aggregation_core PRIVATE -O3 -Wall -Wextra -Wpedantic)
+    target_compile_options(zerotrust_fl_cpp PRIVATE -O3 -Wall -Wextra -Wpedantic)
+    if(ZTFL_NATIVE_ARCH)
+        target_compile_options(zerotrust_aggregation_core PRIVATE -march=native)
+        target_compile_options(zerotrust_fl_cpp PRIVATE -march=native)
+    endif()
+endif()
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ZTFL_IPO_SUPPORTED OUTPUT ZTFL_IPO_ERROR LANGUAGES CXX)
+if(ZTFL_IPO_SUPPORTED)
+    set_property(
+        TARGET zerotrust_aggregation_core
+        PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    )
+    set_property(
+        TARGET zerotrust_fl_cpp
+        PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    )
 endif()
