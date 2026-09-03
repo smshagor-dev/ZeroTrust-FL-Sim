@@ -106,27 +106,31 @@ The local multiprocessing simulation and the Go network-security control plane a
 
 # Mathematical Foundations
 
+> GitHub math note: inline equations in this README use `$...$` and display equations use fenced `math` blocks. This avoids unsupported or inconsistently rendered Markdown/LaTeX delimiters in GitHub README rendering.
+
 ## Federated Learning Objective
 
-Let there be \(K\) federated clients. Client \(k\) owns local dataset
+Let there be $K$ federated clients. Client $k$ owns local dataset:
 
-$$
+```math
 \mathcal{D}_k = \{(x_{k,i}, y_{k,i})\}_{i=1}^{N_k}.
-$$
+```
 
-For model parameters \(W \in \mathbb{R}^{d}\), client \(k\) minimizes
+For model parameters $W \in \mathbb{R}^{d}$, client $k$ minimizes:
 
-$$
+```math
 F_k(W)
 =
 \frac{1}{N_k}
 \sum_{i=1}^{N_k}
-\ell(W; x_{k,i}, y_{k,i}),
-$$
+\ell(W; x_{k,i}, y_{k,i}).
+```
 
-where \(\ell\) is the task loss. A conventional weighted global objective is
+Here, $\ell$ is the task loss and $N_k$ is the number of local samples owned by client $k$.
 
-$$
+A conventional weighted global objective is:
+
+```math
 F(W)
 =
 \sum_{k=1}^{K} q_k F_k(W),
@@ -134,17 +138,17 @@ F(W)
 q_k \ge 0,
 \qquad
 \sum_{k=1}^{K} q_k = 1.
-$$
+```
 
-At federated round \(t\), worker \(k\) receives \(W^{(t)}\), performs local optimization, and obtains \(W_k^{(t)}\). Its model delta is
+At federated round $t$, worker $k$ receives $W^{(t)}$, performs local optimization, and obtains $W_k^{(t)}$. Its model delta is:
 
-$$
+```math
 \Delta_k^{(t)} = W_k^{(t)} - W^{(t)}.
-$$
+```
 
-The server applies aggregation operator \(\mathcal{A}\):
+The server applies aggregation operator $\mathcal{A}$:
 
-$$
+```math
 \widehat{\Delta}^{(t)}
 =
 \mathcal{A}
@@ -152,23 +156,26 @@ $$
 \Delta_1^{(t)},
 \ldots,
 \Delta_n^{(t)}
-\right),
-$$
+\right).
+```
 
-and updates
+The global model is then updated as:
 
-$$
-W^{(t+1)} = W^{(t)} + \widehat{\Delta}^{(t)}.
-$$
+```math
+W^{(t+1)}
+=
+W^{(t)} + \widehat{\Delta}^{(t)}.
+```
 
-For ordinary averaging,
+For ordinary arithmetic averaging:
 
-$$
+```math
 \mathcal{A}_{\mathrm{mean}}
 =
 \frac{1}{n}
-\sum_{i=1}^{n} \Delta_i.
-$$
+\sum_{i=1}^{n}
+\Delta_i.
+```
 
 A Byzantine worker is not required to obey this local-learning rule and may submit an arbitrary manipulated update instead.
 
@@ -176,26 +183,26 @@ A Byzantine worker is not required to obey this local-learning rule and may subm
 
 ## Data Heterogeneity and Non-IID Partitioning
 
-For each class \(c\), ZeroTrust-FL-Sim samples a client-proportion vector from a symmetric \(K\)-dimensional Dirichlet distribution:
+For each class $c$, ZeroTrust-FL-Sim samples a client-proportion vector from a symmetric $K$-dimensional Dirichlet distribution:
 
-$$
+```math
 \mathbf{p}^{(c)}
 \sim
-\operatorname{Dir}_K
+\mathrm{Dir}_K
 \left(
 \alpha \mathbf{1}_K
 \right).
-$$
+```
 
-A compact FL notation is
+A compact FL notation is:
 
-$$
-p_k \sim \operatorname{Dir}_K(\alpha).
-$$
+```math
+p_k \sim \mathrm{Dir}_K(\alpha).
+```
 
-More explicitly,
+More explicitly:
 
-$$
+```math
 \mathbf{p}^{(c)}
 =
 \left(
@@ -206,67 +213,75 @@ p_K^{(c)}
 \qquad
 p_k^{(c)} \ge 0,
 \qquad
-\sum_{k=1}^{K} p_k^{(c)}=1.
-$$
+\sum_{k=1}^{K} p_k^{(c)} = 1.
+```
 
-The concentration parameter \(\alpha>0\) controls heterogeneity:
+The concentration parameter $\alpha>0$ controls heterogeneity:
 
-- **small \(\alpha\)** produces sparse class allocations and strong client drift;
-- **\(\alpha \approx 1\)** produces moderate heterogeneity;
-- **large \(\alpha\)** concentrates class proportions near \(1/K\), approaching an IID-like split.
+- **small $\alpha$** produces sparse class allocations and strong client drift;
+- **$\alpha \approx 1$** produces moderate heterogeneity;
+- **large $\alpha$** concentrates class proportions near $1/K$, approaching an IID-like split.
 
-For the symmetric Dirichlet distribution,
+For the symmetric Dirichlet distribution:
 
-$$
-\mathbb{E}[p_k^{(c)}] = \frac{1}{K}.
-$$
+```math
+\mathbb{E}\left[p_k^{(c)}\right]
+=
+\frac{1}{K}.
+```
 
-Smaller \(\alpha\) increases dispersion around that expectation. The implementation samples class-wise proportions, allocates every source sample exactly once, performs deterministic seeded retries, and can enforce a minimum number of samples per client. An IID baseline is provided through uniform random index partitioning.
+Smaller $\alpha$ increases dispersion around that expectation. The implementation samples class-wise proportions, allocates every source sample exactly once, performs deterministic seeded retries, and can enforce a minimum number of samples per client. An IID baseline is provided through uniform random index partitioning.
 
 ---
 
 # Adversarial Threat Formulation
 
-Let \(\mathcal{B}\) be the set of compromised clients and \(f=|\mathcal{B}|\) the assumed Byzantine count. A malicious worker may manipulate labels before training or directly transform the resulting model update.
+Let $\mathcal{B}$ be the set of compromised clients and let $f=|\mathcal{B}|$ denote the assumed Byzantine count. A malicious worker may manipulate labels before training or directly transform the resulting model update.
 
 ## Label-Flipping Attack
 
-Let
+Define an attacker-selected target mapping:
 
-$$
-f_{\mathrm{label}} : \mathcal{Y} \rightarrow \mathcal{Y}
-$$
+```math
+f_{\mathrm{label}} : \mathcal{Y} \rightarrow \mathcal{Y}.
+```
 
-be an attacker-selected permutation or target map. A poisoned label is
+A poisoned label is:
 
-$$
-\tilde{y}=f_{\mathrm{label}}(y)=y'.
-$$
+```math
+\widetilde{y}
+=
+f_{\mathrm{label}}(y)
+=
+y'.
+```
 
-For a targeted source class \(a\) and target class \(b\),
+For targeted flipping from source class $a$ to target class $b$:
 
-$$
+```math
 f_{\mathrm{label}}(y)
 =
 \begin{cases}
-b, & y=a,\\
+b, & y=a, \\
 y, & y\neq a.
 \end{cases}
-$$
+```
 
 The implementation supports arbitrary label mappings and probabilistic activation. For binary labels without an explicit mapping, the two observed classes may be exchanged.
 
 ## Additive Gaussian / Matrix Noise Poisoning
 
-For malicious worker \(i\), additive model poisoning is
+For malicious worker $i$, additive model poisoning is:
 
-$$
-\tilde{W}_i = W_i + \varepsilon_i,
-$$
+```math
+\widetilde{W}_i
+=
+W_i + \varepsilon_i.
+```
 
-where
+The perturbation is sampled as:
 
-$$
+```math
 \varepsilon_i
 \sim
 \mathcal{N}
@@ -274,13 +289,12 @@ $$
 \mu \mathbf{1},
 \sigma^2 \mathbf{I}_d
 \right).
-$$
+```
 
-For the zero-mean form,
+For the common zero-mean case:
 
-$$
-\boxed{
-\tilde{W}_i
+```math
+\widetilde{W}_i
 =
 W_i
 +
@@ -288,53 +302,62 @@ W_i
 \left(
 0,
 \sigma^2 \mathbf{I}_d
-\right)
-}
-$$
+\right).
+```
 
-so each coordinate receives independent Gaussian perturbation with variance \(\sigma^2\).
+Each coordinate therefore receives independent Gaussian perturbation with variance $\sigma^2$.
 
 ## Sign-Flipping Attack
 
-For honest gradient or model delta \(g_i\), a sign-flipping adversary submits
+For an honest gradient or model delta $g_i$, a sign-flipping adversary submits:
 
-$$
-\boxed{
-\tilde{g}_i = -\gamma g_i
-}
-$$
+```math
+\widetilde{g}_i
+=
+-\gamma g_i,
+\qquad
+\gamma \ge 0.
+```
 
-with \(\gamma \ge 0\). When \(\gamma=1\), the direction is exactly inverted; larger values increase the malicious magnitude.
+When $\gamma=1$, the direction is exactly inverted. Larger values increase the malicious magnitude.
 
 ## Adaptive Norm-Constrained Poisoning
 
-The adaptive attack first forms
+The adaptive attack first forms:
 
-$$
-g_i^{\star} = -s g_i,
-$$
+```math
+g_i^{\star}
+=
+-s g_i,
+\qquad
+s \ge 0.
+```
 
-where \(s\ge0\) is the configured attack scale. Let
+Let the permitted norm envelope be:
 
-$$
-r_{\max} = ρ\lVert g_i \rVert_2,
-$$
+```math
+r_{\max}
+=
+\rho \lVert g_i \rVert_2,
+\qquad
+\rho > 0.
+```
 
-where \(ρ>0\) is the maximum norm ratio. The submitted attack is
+The submitted attack is:
 
-$$
-\tilde{g}_i
+```math
+\widetilde{g}_i
 =
 \begin{cases}
-g_i^{\star}, & \lVert g_i^{\star}\rVert_2 \le r_{\max},\\[6pt]
+g_i^{\star}, & \lVert g_i^{\star}\rVert_2 \le r_{\max}, \\
 \displaystyle
 r_{\max}
-\frac{g_i^{\star}}
-{\lVert g_i^{\star}\rVert_2}, & \text{otherwise}.
+\frac{g_i^{\star}}{\lVert g_i^{\star}\rVert_2},
+& \lVert g_i^{\star}\rVert_2 > r_{\max}.
 \end{cases}
-$$
+```
 
-This preserves an attacker-selected opposite direction while constraining the update inside a configurable Euclidean norm envelope.
+This preserves an attacker-selected opposite direction while constraining the submitted update to a configurable Euclidean norm envelope.
 
 ---
 
@@ -346,187 +369,214 @@ All client updates must have the same shape and contain finite values. Native in
 
 ## Krum and Multi-Krum
 
-Let
+Let the $n$ submitted client updates be:
 
-$$
-W_1,W_2,\ldots,W_n \in \mathbb{R}^{d}
-$$
+```math
+W_1,
+W_2,
+\ldots,
+W_n
+\in
+\mathbb{R}^{d}.
+```
 
-be client updates. The pairwise squared Euclidean distance is
+The pairwise squared Euclidean distance is:
 
-$$
+```math
 D_{ij}
 =
 \lVert W_i-W_j\rVert_2^2
 =
 \sum_{r=1}^{d}
-\left(w_{i,r}-w_{j,r}\right)^2.
-$$
+\left(
+w_{i,r}-w_{j,r}
+\right)^2.
+```
 
-For client \(i\), let \(\mathcal{N}_i\) contain its \(n-f-2\) nearest peers. The Krum score is
+For client $i$, let $\mathcal{N}_i$ contain its $n-f-2$ nearest peer updates. The Krum score is:
 
-$$
-\boxed{
+```math
 S_i
 =
 \sum_{j\in\mathcal{N}_i}
-\lVert W_i-W_j\rVert_2^2
-}
-$$
+\lVert W_i-W_j\rVert_2^2.
+```
 
-which corresponds to the shorthand
+This is the precise version of the shorthand score:
 
-$$
+```math
 S_i
 =
 \sum_{j\in i\rightarrow k}
 \lVert W_i-W_j\rVert_2^2.
-$$
+```
 
-The implementation requires
+The native implementation requires:
 
-$$
-\boxed{n \ge 2f+3}
-$$
+```math
+n \ge 2f+3.
+```
 
-and uses
+Its nearest-neighbor set size is:
 
-$$
-|\mathcal{N}_i|=n-f-2.
-$$
+```math
+|\mathcal{N}_i|
+=
+n-f-2.
+```
 
 ### Classic Krum
 
-$$
-i^{\star}=\arg\min_i S_i,
-$$
+The selected update index is:
 
-and
+```math
+i^{\star}
+=
+\arg\min_i S_i.
+```
 
-$$
-\mathcal{A}_{\mathrm{Krum}}=W_{i^{\star}}.
-$$
+Classic Krum returns:
+
+```math
+\mathcal{A}_{\mathrm{Krum}}
+=
+W_{i^{\star}}.
+```
 
 ### Multi-Krum
 
-Let \(\mathcal{M}_m\) contain the indices of the \(m\) smallest Krum scores, with
+Let $\mathcal{M}_m$ contain the indices of the $m$ smallest Krum scores, subject to:
 
-$$
+```math
 1 \le m \le n-f-2.
-$$
+```
 
-Then
+Multi-Krum returns:
 
-$$
-\boxed{
+```math
 \mathcal{A}_{\mathrm{MultiKrum}}
 =
 \frac{1}{m}
-\sum_{i\in\mathcal{M}_m} W_i
-}
-$$
+\sum_{i\in\mathcal{M}_m}
+W_i.
+```
 
-and \(m=1\) reduces to classic Krum.
+The case $m=1$ reduces to classic Krum.
 
-The native implementation builds a symmetric \(n\times n\) distance matrix, selects nearest distances with `std::nth_element`, applies deterministic index tie breaking, and parallelizes distance rows, score calculation, and selected-update averaging with OpenMP.
+The native implementation builds a symmetric $n\times n$ distance matrix, selects nearest distances with `std::nth_element`, applies deterministic index tie breaking, and parallelizes distance rows, score calculation, and selected-update averaging with OpenMP.
 
 ---
 
 ## Adaptive Trimmed Mean
 
-For coordinate \(j\), sort the submitted values:
+For coordinate $j$, sort the submitted values:
 
-$$
-w_j^{(1)} \le w_j^{(2)} \le \cdots \le w_j^{(n)}.
-$$
+```math
+w_j^{(1)}
+\le
+w_j^{(2)}
+\le
+\cdots
+\le
+w_j^{(n)}.
+```
 
-A common canonical form uses
+A common canonical form sets:
 
-$$
-b=\lceil\beta n\rceil
-$$
+```math
+b
+=
+\lceil \beta n \rceil.
+```
 
-and
+It then computes:
 
-$$
-\boxed{
+```math
 \bar{w}_j
 =
 \frac{1}{n-2\lceil\beta n\rceil}
 \sum_{i=\lceil\beta n\rceil+1}^{n-\lceil\beta n\rceil}
-w_j^{(i)}
-}
-$$
-
-for \(0\le\beta<1/2\).
+w_j^{(i)},
+\qquad
+0 \le \beta < \frac{1}{2}.
+```
 
 ### Exact repository operator
 
-The C++ implementation intentionally uses
+The C++ implementation intentionally uses:
 
-$$
-b_{\mathrm{impl}}=\lfloor\beta n\rfloor,
-$$
+```math
+b_{\mathrm{impl}}
+=
+\lfloor \beta n \rfloor.
+```
 
-then computes
+It then computes:
 
-$$
-\boxed{
+```math
 \bar{w}_{j,\mathrm{impl}}
 =
 \frac{1}{n-2b_{\mathrm{impl}}}
 \sum_{i=b_{\mathrm{impl}}+1}^{n-b_{\mathrm{impl}}}
-w_j^{(i)}
-}
-$$
+w_j^{(i)}.
+```
 
-subject to
+The implementation additionally requires:
 
-$$
-2b_{\mathrm{impl}}<n.
-$$
+```math
+2b_{\mathrm{impl}} < n.
+```
 
-This implementation note is important for exact experimental reproduction: the requested textbook form uses `ceil`, while this repository executes `floor`.
+This distinction is important for exact experimental reproduction: the canonical equation above uses `ceil`, while the repository executes `floor`.
 
 ---
 
 ## Coordinate-Wise Median
 
-For each coordinate \(j\), let
+For each coordinate $j$, let the ordered values satisfy:
 
-$$
-w_j^{(1)}\le\cdots\le w_j^{(n)}
-$$
+```math
+w_j^{(1)}
+\le
+\cdots
+\le
+w_j^{(n)}.
+```
 
-be the ordered values. For odd \(n\),
+For odd $n$:
 
-$$
-\boxed{
-\hat{w}_j=w_j^{((n+1)/2)}
-}
-$$
+```math
+\widehat{w}_j
+=
+w_j^{((n+1)/2)}.
+```
 
-and for even \(n\),
+For even $n$:
 
-$$
-\boxed{
-\hat{w}_j
+```math
+\widehat{w}_j
 =
 \frac{1}{2}
 \left(
-w_j^{(n/2)}+w_j^{(n/2+1)}
-\right)
-}
-$$
+w_j^{(n/2)}
++
+w_j^{(n/2+1)}
+\right).
+```
 
-so
+The full coordinate-wise median aggregate is:
 
-$$
+```math
 \mathcal{A}_{\mathrm{median}}
-=(\hat{w}_1,\ldots,\hat{w}_d).
-$$
+=
+\left(
+\widehat{w}_1,
+\ldots,
+\widehat{w}_d
+\right).
+```
 
-This is a **coordinate-wise median**, not a geometric/spatial median over \(\mathbb{R}^{d}\). Each parameter dimension is solved independently. The implementation uses `std::nth_element`; for even \(n\), it combines the upper middle order statistic with the maximum element below that partition.
+This is a **coordinate-wise median**, not a geometric or spatial median over $\mathbb{R}^{d}$. Each parameter dimension is solved independently. The implementation uses `std::nth_element`; for even $n$, it combines the upper-middle order statistic with the maximum element below that partition.
 
 ---
 
@@ -534,113 +584,124 @@ This is a **coordinate-wise median**, not a geometric/spatial median over \(\mat
 
 Let:
 
-- \(n\) = number of client updates;
-- \(d\) = parameters per update;
-- \(m\) = Multi-Krum candidate count;
-- \(P\) = effective CPU worker threads.
+- $n$ = number of client updates;
+- $d$ = parameters per update;
+- $m$ = Multi-Krum candidate count;
+- $P$ = effective CPU worker threads.
 
 ## Krum / Multi-Krum
 
-There are
+There are:
 
-$$
-\binom{n}{2}=\frac{n(n-1)}{2}
-$$
+```math
+\binom{n}{2}
+=
+\frac{n(n-1)}{2}
+```
 
-pairwise distances, and every distance scans \(d\) coordinates. Therefore
+pairwise distances, and every distance scans $d$ coordinates. Therefore:
 
-$$
-T_{\mathrm{distance}}=\Theta(n^2d).
-$$
+```math
+T_{\mathrm{distance}}
+=
+\Theta(n^2d).
+```
 
-Nearest-neighbor score selection adds approximately \(O(n^2)\) expected work, and averaging \(m\) selected updates costs \(O(md)\). Hence
+Nearest-neighbor score selection adds approximately $O(n^2)$ expected work, and averaging $m$ selected updates costs $O(md)$. Hence:
 
-$$
-\boxed{
-T_{\mathrm{Krum}}=O(n^2d)
-}
-$$
+```math
+T_{\mathrm{Krum}}
+=
+O(n^2d).
+```
 
-and
+For Multi-Krum:
 
-$$
+```math
 T_{\mathrm{MultiKrum}}
-=O(n^2d+md)
-=O(n^2d)
-$$
+=
+O(n^2d+md)
+=
+O(n^2d)
+```
 
-for normal regimes with \(m\le n\).
+for typical regimes with $m\le n$.
 
-The explicit native distance matrix requires
+The explicit native distance matrix requires:
 
-$$
-\boxed{
-S_{\mathrm{Krum}}=O(n^2)
-}
-$$
+```math
+S_{\mathrm{Krum}}
+=
+O(n^2)
+```
 
-additional scalar storage, excluding the \(O(nd)\) input tensors.
+additional scalar storage, excluding the $O(nd)$ input tensors.
 
 ## Trimmed Mean
 
-Sorting \(n\) values for each of \(d\) coordinates gives
+Sorting $n$ values for each of $d$ coordinates gives:
 
-$$
-\boxed{
-T_{\mathrm{trim}}=O(dn\log n)
-}
-$$
+```math
+T_{\mathrm{trim}}
+=
+O(dn\log n).
+```
 
-with \(O(n)\) coordinate-local scratch per active thread.
+The implementation uses $O(n)$ coordinate-local scratch storage per active worker thread.
 
 ## Coordinate Median
 
-The implementation uses `std::nth_element` rather than a full sort. Its average selection work is linear in \(n\), giving approximately
+The implementation uses `std::nth_element` rather than a full sort. Its average selection work is linear in $n$, giving approximately:
 
-$$
-T_{\mathrm{median}}\approx O(dn).
-$$
+```math
+T_{\mathrm{median}}
+\approx
+O(dn).
+```
 
 ## Parallel Native Execution
 
-For distance-dominated Krum, idealized OpenMP scaling is
+For distance-dominated Krum, idealized OpenMP scaling is:
 
-$$
-\boxed{
+```math
 \mathcal{T}_{\mathrm{parallel}}
 \approx
-O\left(\frac{n^2d}{P}\right)
-}
-$$
+O\left(
+\frac{n^2d}{P}
+\right).
+```
 
-and trimmed mean approaches
+For trimmed mean:
 
-$$
+```math
 \mathcal{T}_{\mathrm{trim,parallel}}
 \approx
-O\left(\frac{dn\log n}{P}\right).
-$$
+O\left(
+\frac{dn\log n}{P}
+\right).
+```
 
 The repository uses **OpenMP** parallel loops and OpenMP SIMD reduction. It does not currently implement these aggregators with `std::execution::par`.
 
-Real speedup is bounded by synchronization, scheduling, memory bandwidth, cache locality, vectorization, and serial work. Amdahl's law gives the familiar upper-bound model
+Real speedup is bounded by synchronization, scheduling, memory bandwidth, cache locality, vectorization, and serial work. Amdahl's law gives the upper-bound model:
 
-$$
+```math
 S(P)
 =
-\frac{1}{(1-\phi)+\phi/P},
-$$
+\frac{1}
+{(1-\phi)+\phi/P},
+```
 
-where \(\phi\) is the parallelizable fraction.
+where $\phi$ is the parallelizable fraction.
 
 ## Complexity Summary
 
 | Algorithm | Serial time | Idealized parallel time | Extra algorithmic space |
 | --- | ---: | ---: | ---: |
-| Krum | \(O(n^2d)\) | \(O(n^2d/P)\) | \(O(n^2)\) |
-| Multi-Krum | \(O(n^2d+md)\) | approximately \(O((n^2d+md)/P)\) | \(O(n^2)\) |
-| Trimmed mean | \(O(dn\log n)\) | \(O(dn\log n/P)\) | \(O(Pn+d)\) scratch/result |
-| Coordinate median | expected \(O(dn)\) | approximately \(O(dn/P)\) | \(O(Pn+d)\) scratch/result |
+| Krum | $O(n^2d)$ | $O(n^2d/P)$ | $O(n^2)$ |
+| Multi-Krum | $O(n^2d+md)$ | approximately $O((n^2d+md)/P)$ | $O(n^2)$ |
+| Trimmed mean | $O(dn\log n)$ | $O(dn\log n/P)$ | $O(Pn+d)$ scratch/result |
+| Coordinate median | expected $O(dn)$ | approximately $O(dn/P)$ | $O(Pn+d)$ scratch/result |
 
 Pure Python/NumPy reference implementations and native C++ implementations can have the same asymptotic workload while differing substantially in temporary allocation, interpreter overhead, vectorization, memory locality, GIL behavior, compiler optimization, and thread-level parallelism.
 
@@ -937,7 +998,7 @@ Generated certificates, signing keys, JWTs, datasets, model binaries, and experi
 
 # Running Federated Simulations
 
-## Multi-Krum with sign-flipping attackers
+## Multi-Krum with Sign-Flipping Attackers
 
 ```bash
 python scripts/run_fl_sim.py \
@@ -954,7 +1015,7 @@ python scripts/run_fl_sim.py \
   --backend native
 ```
 
-## Trimmed mean with Gaussian poisoning
+## Trimmed Mean with Gaussian Poisoning
 
 ```bash
 python scripts/run_fl_sim.py \
@@ -970,7 +1031,7 @@ python scripts/run_fl_sim.py \
   --backend native
 ```
 
-## Coordinate median with adaptive poisoning
+## Coordinate Median with Adaptive Poisoning
 
 ```bash
 python scripts/run_fl_sim.py \
@@ -1026,7 +1087,7 @@ Override the malicious attack:
 ZTFL_MALICIOUS_ATTACK=label_flip docker compose up -d --build --wait
 ```
 
-or
+or:
 
 ```bash
 ZTFL_MALICIOUS_ATTACK=sign_flip docker compose up -d --build --wait
@@ -1048,11 +1109,11 @@ The coordinator health check uses mTLS, the development CA, a dedicated client c
 
 ## C++20 vs NumPy Aggregation
 
-Full mode measures
+Full mode measures model dimensions:
 
-$$
+```math
 d \in \{10^3,10^5,10^7\}
-$$
+```
 
 for:
 
@@ -1070,7 +1131,7 @@ python benchmarks/benchmark_suite.py \
 
 ## mTLS Network Overhead
 
-The transport benchmark compares the same gRPC echo operation over plaintext and mutual TLS and reports mean, p50, p95, and requests/second.
+The transport benchmark compares the same gRPC echo operation over plaintext and mutual TLS and reports mean latency, p50 latency, p95 latency, and requests per second.
 
 ```bash
 python benchmarks/benchmark_suite.py \
@@ -1080,19 +1141,19 @@ python benchmarks/benchmark_suite.py \
 
 ## Convergence Under Poisoning
 
-Full convergence mode executes 50 federated rounds with 20 clients at exact malicious populations of
+Full convergence mode executes 50 federated rounds with 20 clients at exact malicious populations of:
 
-$$
-0\%,\quad10\%,\quad25\%,\quad40\%,
-$$
+```math
+0\%,\qquad 10\%,\qquad 25\%,\qquad 40\%.
+```
 
-which correspond to
+These correspond to:
 
-$$
-0,\quad2,\quad5,\quad8
-$$
+```math
+0,\qquad 2,\qquad 5,\qquad 8
+```
 
-compromised workers.
+compromised workers respectively.
 
 ```bash
 python benchmarks/benchmark_suite.py \
@@ -1131,57 +1192,64 @@ Plots are exported at 300 DPI.
 
 # Empirical Result Tables
 
-Performance is hardware and toolchain dependent. This README intentionally does not invent machine-independent benchmark numbers. Run the benchmark suite and publish the generated CSV values with the machine, compiler, OpenMP, seed, and attack configuration used to obtain them.
+Performance is hardware and toolchain dependent. This README intentionally does not invent machine-independent benchmark numbers. Run the benchmark suite and publish generated CSV values together with the machine, compiler, OpenMP, seed, and attack configuration used to obtain them.
 
-## Aggregation latency and speedup
+## Aggregation Latency and Speedup
 
-| Algorithm | Parameters \(d\) | NumPy reference (ms) | C++20 native (ms) | Speedup |
+| Algorithm | Parameters $d$ | NumPy reference (ms) | C++20 native (ms) | Speedup |
 | --- | ---: | ---: | ---: | ---: |
-| Krum | \(10^3\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Krum | \(10^5\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Krum | \(10^7\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Multi-Krum | \(10^3\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Multi-Krum | \(10^5\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Multi-Krum | \(10^7\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Trimmed mean | \(10^3\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Trimmed mean | \(10^5\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
-| Trimmed mean | \(10^7\) | `aggregation.csv` | `aggregation.csv` | \(T_{Py}/T_{C++}\) |
+| Krum | $10^3$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Krum | $10^5$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Krum | $10^7$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Multi-Krum | $10^3$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Multi-Krum | $10^5$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Multi-Krum | $10^7$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Trimmed mean | $10^3$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Trimmed mean | $10^5$ | `aggregation.csv` | `aggregation.csv` | measured |
+| Trimmed mean | $10^7$ | `aggregation.csv` | `aggregation.csv` | measured |
 
-The benchmark defines
+The benchmark defines speedup as:
 
-$$
-\text{speedup}
+```math
+\mathrm{speedup}
 =
-\frac{T_{\mathrm{NumPy}}}{T_{\mathrm{native}}}.
-$$
+\frac{T_{\mathrm{NumPy}}}
+{T_{\mathrm{native}}}.
+```
 
-## Memory scaling
+## Memory Scaling
 
 The benchmark suite currently records latency and convergence metrics but does not emit measured peak RSS. Theoretical storage can still be stated.
 
-For \(n\) float32 updates of dimension \(d\), input storage is approximately
+For $n$ float32 updates of dimension $d$, input storage is approximately:
 
-$$
-M_{\mathrm{updates}}=4nd \quad \text{bytes}.
-$$
+```math
+M_{\mathrm{updates}}
+=
+4nd
+\quad \mathrm{bytes}.
+```
 
-Krum additionally allocates an \(n\times n\) `double` matrix:
+Krum additionally allocates an $n\times n$ `double` matrix:
 
-$$
-M_{\mathrm{distance}}=8n^2 \quad \text{bytes}.
-$$
+```math
+M_{\mathrm{distance}}
+=
+8n^2
+\quad \mathrm{bytes}.
+```
 
-For the benchmark configuration \(n=7\):
+For benchmark configuration $n=7$:
 
-| Parameters \(d\) | Minimum float32 update payload | Krum distance matrix | Measured process peak RSS |
+| Parameters $d$ | Minimum float32 update payload | Krum distance matrix | Measured process peak RSS |
 | ---: | ---: | ---: | ---: |
-| \(10^3\) | approximately 0.027 MiB | approximately 0.0004 MiB | not currently emitted |
-| \(10^5\) | approximately 2.67 MiB | approximately 0.0004 MiB | not currently emitted |
-| \(10^7\) | approximately 267.0 MiB | approximately 0.0004 MiB | not currently emitted |
+| $10^3$ | approximately 0.027 MiB | approximately 0.0004 MiB | not currently emitted |
+| $10^5$ | approximately 2.67 MiB | approximately 0.0004 MiB | not currently emitted |
+| $10^7$ | approximately 267.0 MiB | approximately 0.0004 MiB | not currently emitted |
 
 These are analytical storage estimates, not total Python process RSS. NumPy temporaries, allocator behavior, PyTorch runtime state, loaded libraries, and thread stacks increase observed resident memory.
 
-## Convergence under Byzantine participation
+## Convergence Under Byzantine Participation
 
 | Byzantine fraction | Malicious clients / 20 | Final loss | Final accuracy | Mitigation metric |
 | ---: | ---: | ---: | ---: | ---: |
@@ -1282,7 +1350,7 @@ protobuf generation
 - container log capture
 - stack cleanup
 
-The badge at the top of the README reflects the current workflow status rather than a hard-coded success claim.
+The badge at the top of this README reflects the workflow state rather than a hard-coded success claim.
 
 ---
 
@@ -1295,10 +1363,10 @@ The badge at the top of the README reflects the current workflow status rather t
 - The coordinator private key remains secret.
 - The JWT signing private key remains secret.
 - The coordinator host is trusted for the experiment.
-- The selected Byzantine bound \(f\) is consistent with the aggregation configuration.
+- The selected Byzantine bound $f$ is consistent with the aggregation configuration.
 - Client updates use the expected shape and numerical domain.
 
-## Not guaranteed
+## Not Guaranteed
 
 The platform does not automatically protect against:
 
@@ -1311,19 +1379,19 @@ The platform does not automatically protect against:
 - compromised endpoint data confidentiality;
 - Byzantine populations exceeding algorithm assumptions.
 
-### Krum boundary
+### Krum Boundary
 
-The implementation rejects configurations violating
+The implementation rejects configurations violating:
 
-$$
+```math
 n \ge 2f+3.
-$$
+```
 
 This structural condition is necessary for the implementation but is not a universal proof that every attack is mitigated.
 
-### Trimmed-mean boundary
+### Trimmed-Mean Boundary
 
-Extreme-value rejection depends on the chosen \(\beta\) and malicious population. Attackers whose values remain inside the retained central interval can still influence the aggregate.
+Extreme-value rejection depends on the chosen $\beta$ and malicious population. Attackers whose values remain inside the retained central interval can still influence the aggregate.
 
 ---
 
@@ -1339,7 +1407,7 @@ Record at minimum:
 - CPU model and thread count;
 - operating system;
 - dataset;
-- Dirichlet \(\alpha\);
+- Dirichlet $\alpha$;
 - client count;
 - malicious fraction;
 - attack type and parameters;
@@ -1380,16 +1448,16 @@ python -c "import zerotrust_fl_cpp as native; print('OpenMP:', native.openmp_ena
 
 # Git Workflow
 
-Suggested README update workflow:
+For future README/documentation changes:
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-git checkout -b docs/publication-readme
+git checkout -b docs/readme-update
 
 git add README.md
-git commit -m "docs: publish mathematical system overview"
-git push -u origin docs/publication-readme
+git commit -m "docs: update mathematical system documentation"
+git push -u origin docs/readme-update
 ```
 
 For research result publication, keep source changes and measured benchmark artifacts in separately identifiable commits so the implementation-to-result relationship remains auditable.
