@@ -1,0 +1,22 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: ztfl-worker-network-jitter
+  namespace: zerotrust-fl
+  labels:
+    app.kubernetes.io/part-of: zerotrust-fl-sim
+    chaos.zerotrust-fl/scenario: network-jitter
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - zerotrust-fl
+    labelSelectors:
+      app.kubernetes.io/component: worker
+  direction: both
+  delay:
+    latency: "150ms"
+    jitter: "100ms"
+    correlation: "50"
+  duration: "60s"
