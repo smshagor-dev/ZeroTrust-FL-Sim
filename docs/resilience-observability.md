@@ -111,7 +111,7 @@ e_{naive}=\lVert g_{mean}-g_{benign}\rVert_2.
 The score exported by the existing simulator logic is:
 
 ```math
-M_t=\operatorname{clip}\left(1-\frac{e_{robust}}{e_{naive}},0,1\right).
+M_t=\mathrm{clip}\left(1-\frac{e_{robust}}{e_{naive}},0,1\right).
 ```
 
 The attack is considered mitigated when:
