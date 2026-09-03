@@ -200,25 +200,30 @@ class TelemetryRuntime:
             gpu_bytes = float(torch.cuda.memory_allocated())
         self.gpu_memory.labels(**self._common_labels).set(gpu_bytes)
 
+    def record_aggregation(
+        self,
+        *,
+        backend: str,
+        method: str,
+        duration_seconds: float,
+        cpu_memory_delta_bytes: int,
+        gpu_peak_delta_bytes: int,
+    ) -> None:
+        labels = {**self._common_labels, "backend": backend, "method": method}
+        self.aggregation_time.labels(**labels).observe(max(0.0, duration_seconds))
+        self.aggregator_cpu_memory.labels(**labels).set(
+            max(0.0, float(cpu_memory_delta_bytes))
+        )
+        self.aggregator_gpu_memory.labels(**labels).set(
+            max(0.0, float(gpu_peak_delta_bytes))
+        )
+
     def record_round(self, metrics: Any) -> None:
         """Publish one simulator RoundMetrics object immediately after a round."""
 
-        backend = str(metrics.aggregation_backend)
-        method = str(metrics.aggregation_method)
-        labels = {**self._common_labels, "backend": backend, "method": method}
         self.round_time.labels(**self._common_labels).observe(
             max(0.0, float(metrics.round_duration_ms) / 1000.0)
         )
-        self.aggregation_time.labels(**labels).observe(
-            max(0.0, float(metrics.aggregation_duration_ms) / 1000.0)
-        )
-        self.aggregator_cpu_memory.labels(**labels).set(
-            max(0.0, float(metrics.aggregation_cpu_memory_delta_bytes))
-        )
-        self.aggregator_gpu_memory.labels(**labels).set(
-            max(0.0, float(metrics.aggregation_gpu_peak_delta_bytes))
-        )
-
         selected = len(metrics.selected_clients)
         churned = len(metrics.failed_clients) + len(metrics.straggler_clients)
         self.node_churn_rate.labels(**self._common_labels).set(
