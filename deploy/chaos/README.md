@@ -52,6 +52,17 @@ python scripts/run_fl_sim.py \
   --rounds 10
 ```
 
+The secure four-worker gRPC Docker testbed can also be switched to 2-of-4 coordinated attackers with the provided override:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.chaos.yml \
+  up -d --build --wait
+```
+
+`benign-worker-3` and `malicious-worker-1` deliberately share `ZTFL_COLLUSION_SEED=20271` and `ZTFL_COLLUSION_SCALE=8`, producing the same malicious direction for a given federated round. The service name `benign-worker-3` is retained only to reuse the existing development certificate identity; in this override it is intentionally adversarial.
+
 This intentionally exceeds classical Krum's fault assumption. If `f=n/2`, then the Krum requirement `n >= 2f + 3` becomes `n >= n + 3`, which cannot hold. Use the 50% profile to observe failure modes and recovery behavior, not to claim a Byzantine-resilience theorem in that regime.
 
 Never apply chaos profiles to an unrelated production namespace. Verify selectors and namespace isolation before every experiment.
