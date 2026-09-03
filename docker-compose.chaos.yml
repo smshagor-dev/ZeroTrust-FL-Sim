@@ -1,0 +1,12 @@
+services:
+  benign-worker-3:
+    environment:
+      ZTFL_ATTACK: collusion
+      ZTFL_COLLUSION_SCALE: "8"
+      ZTFL_COLLUSION_SEED: "20271"
+
+  malicious-worker-1:
+    environment:
+      ZTFL_ATTACK: collusion
+      ZTFL_COLLUSION_SCALE: "8"
+      ZTFL_COLLUSION_SEED: "20271"
