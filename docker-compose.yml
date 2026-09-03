@@ -37,7 +37,7 @@ services:
     environment:
       ZTFL_CERTIFICATE_ALGORITHM: ${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}
     command: >-
-      rm -rf /certs/*;
+      find /certs -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +;
       /usr/local/bin/certgen
       -out /certs
       -server-name coordinator
