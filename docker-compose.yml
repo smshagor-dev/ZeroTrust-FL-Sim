@@ -27,12 +27,15 @@ services:
       dockerfile: docker/Dockerfile.coordinator
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
+    environment:
+      ZTFL_CERTIFICATE_ALGORITHM: ${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}
     command: >-
       rm -rf /certs/*;
       /usr/local/bin/certgen
       -out /certs
       -server-name coordinator
       -token-ttl 24h
+      -certificate-algorithm "$$ZTFL_CERTIFICATE_ALGORITHM"
       -clients 'health-probe=edge-worker,benign-worker-1=edge-worker,benign-worker-2=edge-worker,benign-worker-3=edge-worker,malicious-worker-1=edge-worker';
       chown -R 10001:10001 /certs
     volumes:
@@ -60,6 +63,8 @@ services:
       ZTFL_TOKEN_AUDIENCE: zerotrust-fl-services
       ZTFL_REGISTRATION_LEASE: 5m
       ZTFL_MAX_MESSAGE_BYTES: "67108864"
+      ZTFL_PQC_MODE: ${ZTFL_PQC_MODE:-prefer}
+      ZTFL_PQC_REQUIRE_IDENTITY: ${ZTFL_PQC_REQUIRE_IDENTITY:-false}
     ports:
       - "50051:50051"
     volumes:

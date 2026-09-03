@@ -22,18 +22,26 @@ import (
 
 func main() {
 	var (
-		listenAddress = flag.String("listen", envString("ZTFL_LISTEN_ADDRESS", "127.0.0.1:50051"), "TCP address for the coordinator gRPC server")
-		serverCert    = flag.String("server-cert", envString("ZTFL_SERVER_CERT", "certs/dev/server.crt"), "server certificate file")
-		serverKey     = flag.String("server-key", envString("ZTFL_SERVER_KEY", "certs/dev/server.key"), "server private key file")
-		clientCA      = flag.String("client-ca", envString("ZTFL_CLIENT_CA", "certs/dev/ca.crt"), "CA certificate used to verify client certificates")
-		jwtPublicKey  = flag.String("jwt-public-key", envString("ZTFL_JWT_PUBLIC_KEY", "certs/dev/jwt_signing_public.pem"), "Ed25519 JWT verification key")
-		trustDomain   = flag.String("trust-domain", envString("ZTFL_TRUST_DOMAIN", ztsecurity.DefaultTrustDomain), "certificate URI SAN trust domain")
-		tokenIssuer   = flag.String("token-issuer", envString("ZTFL_TOKEN_ISSUER", "zerotrust-fl-sim"), "required JWT issuer")
-		tokenAudience = flag.String("token-audience", envString("ZTFL_TOKEN_AUDIENCE", "zerotrust-fl-services"), "required JWT audience")
-		leaseTTL      = flag.Duration("registration-lease", envDuration("ZTFL_REGISTRATION_LEASE", 5*time.Minute), "node registration lease")
-		maxMessage    = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 64<<20), "maximum gRPC request and response size")
+		listenAddress      = flag.String("listen", envString("ZTFL_LISTEN_ADDRESS", "127.0.0.1:50051"), "TCP address for the coordinator gRPC server")
+		serverCert         = flag.String("server-cert", envString("ZTFL_SERVER_CERT", "certs/dev/server.crt"), "server certificate file")
+		serverKey          = flag.String("server-key", envString("ZTFL_SERVER_KEY", "certs/dev/server.key"), "server private key file")
+		clientCA           = flag.String("client-ca", envString("ZTFL_CLIENT_CA", "certs/dev/ca.crt"), "CA certificate used to verify client certificates")
+		jwtPublicKey       = flag.String("jwt-public-key", envString("ZTFL_JWT_PUBLIC_KEY", "certs/dev/jwt_signing_public.pem"), "Ed25519 JWT verification key")
+		trustDomain        = flag.String("trust-domain", envString("ZTFL_TRUST_DOMAIN", ztsecurity.DefaultTrustDomain), "certificate URI SAN trust domain")
+		tokenIssuer        = flag.String("token-issuer", envString("ZTFL_TOKEN_ISSUER", "zerotrust-fl-sim"), "required JWT issuer")
+		tokenAudience      = flag.String("token-audience", envString("ZTFL_TOKEN_AUDIENCE", "zerotrust-fl-services"), "required JWT audience")
+		leaseTTL           = flag.Duration("registration-lease", envDuration("ZTFL_REGISTRATION_LEASE", 5*time.Minute), "node registration lease")
+		maxMessage         = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 64<<20), "maximum gRPC request and response size")
+		pqcModeValue       = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
+		requirePQCIdentity = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
 	)
 	flag.Parse()
+
+	pqcMode, err := ztsecurity.ParsePQCMode(*pqcModeValue)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid PQC mode: %v\n", err)
+		os.Exit(2)
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -44,6 +52,8 @@ func main() {
 		ClientCAFile:       *clientCA,
 		TrustDomain:        *trustDomain,
 		AllowedClientRoles: []string{"edge-worker", "observer", "admin"},
+		PQCMode:            pqcMode,
+		RequirePQCIdentity: *requirePQCIdentity,
 	})
 	if err != nil {
 		logger.Error("configure mutual TLS", "error", err)
@@ -96,7 +106,14 @@ func main() {
 
 	serveErrors := make(chan error, 1)
 	go func() {
-		logger.Info("coordinator listening", "address", listener.Addr().String(), "tls", "1.3", "mtls", true)
+		logger.Info(
+			"coordinator listening",
+			"address", listener.Addr().String(),
+			"tls", "1.3",
+			"mtls", true,
+			"pqc_key_exchange", string(pqcMode),
+			"pqc_identity_required", *requirePQCIdentity,
+		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()
 
@@ -158,6 +175,18 @@ func envInt(name string, fallback int) int {
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		panic(fmt.Sprintf("invalid %s integer %q: %v", name, value, err))
+	}
+	return parsed
+}
+
+func envBool(name string, fallback bool) bool {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		panic(fmt.Sprintf("invalid %s boolean %q: %v", name, value, err))
 	}
 	return parsed
 }
