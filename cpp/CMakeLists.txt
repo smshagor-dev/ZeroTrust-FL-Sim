@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     zerotrust_fl_cpp
-    VERSION 0.3.0
+    VERSION 0.4.0
     LANGUAGES CXX
 )
 
@@ -41,6 +41,7 @@ endif()
 
 if(ZTFL_ENABLE_CKKS)
     include(FetchContent)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(SEAL_BUILD_DEPS ON CACHE BOOL "" FORCE)
     set(SEAL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SEAL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -52,7 +53,7 @@ if(ZTFL_ENABLE_CKKS)
     FetchContent_Declare(
         microsoft_seal
         GIT_REPOSITORY https://github.com/microsoft/SEAL.git
-        GIT_TAG v4.4.0
+        GIT_TAG v4.4.3
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(microsoft_seal)
