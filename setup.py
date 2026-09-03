@@ -73,6 +73,11 @@ setup(
         "grpcio==1.83.1",
         "protobuf>=7.35,<8.0",
         "psutil>=7,<8",
+        "opentelemetry-api==1.44.0",
+        "opentelemetry-sdk==1.44.0",
+        "opentelemetry-exporter-otlp-proto-grpc==1.44.0",
+        "opentelemetry-instrumentation-grpc==0.65b0",
+        "prometheus-client>=0.22,<1",
     ],
     extras_require={
         "vision": ["torchvision==0.29.0"],
