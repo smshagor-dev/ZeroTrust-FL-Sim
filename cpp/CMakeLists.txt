@@ -2,12 +2,13 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     zerotrust_fl_cpp
-    VERSION 0.2.0
+    VERSION 0.4.0
     LANGUAGES CXX
 )
 
 option(ZTFL_ENABLE_OPENMP "Enable OpenMP parallel aggregation" ON)
 option(ZTFL_NATIVE_ARCH "Optimize generated code for the local CPU" ON)
+option(ZTFL_ENABLE_CKKS "Enable Microsoft SEAL CKKS encrypted aggregation" ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,6 +39,27 @@ if(ZTFL_ENABLE_OPENMP)
     find_package(OpenMP QUIET COMPONENTS CXX)
 endif()
 
+if(ZTFL_ENABLE_CKKS)
+    include(FetchContent)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SEAL_BUILD_DEPS ON CACHE BOOL "" FORCE)
+    set(SEAL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SEAL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SEAL_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+    set(SEAL_BUILD_SEAL_C OFF CACHE BOOL "" FORCE)
+    set(SEAL_USE_ZLIB OFF CACHE BOOL "" FORCE)
+    set(SEAL_USE_ZSTD OFF CACHE BOOL "" FORCE)
+    set(SEAL_USE_INTEL_HEXL OFF CACHE BOOL "" FORCE)
+    set(SEAL_SECURE_COMPILE_OPTIONS ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        microsoft_seal
+        GIT_REPOSITORY https://github.com/microsoft/SEAL.git
+        GIT_TAG v4.4.3
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(microsoft_seal)
+endif()
+
 if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/python")
 endif()
@@ -61,6 +83,14 @@ add_library(
     src/byzantine_aggregator.cpp
 )
 
+if(ZTFL_ENABLE_CKKS)
+    target_sources(
+        zerotrust_aggregation_core
+        PRIVATE
+        src/ckks_secure_aggregation.cpp
+    )
+endif()
+
 target_include_directories(
     zerotrust_aggregation_core
     PUBLIC
@@ -72,6 +102,11 @@ target_compile_features(zerotrust_aggregation_core PUBLIC cxx_std_20)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(zerotrust_aggregation_core PUBLIC OpenMP::OpenMP_CXX)
     target_compile_definitions(zerotrust_aggregation_core PUBLIC ZTFL_HAS_OPENMP=1)
+endif()
+
+if(ZTFL_ENABLE_CKKS)
+    target_link_libraries(zerotrust_aggregation_core PUBLIC SEAL::seal)
+    target_compile_definitions(zerotrust_aggregation_core PUBLIC ZTFL_HAS_CKKS=1)
 endif()
 
 pybind11_add_module(

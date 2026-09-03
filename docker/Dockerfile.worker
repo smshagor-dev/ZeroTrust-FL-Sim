@@ -5,7 +5,7 @@ ENV VIRTUAL_ENV=/opt/venv \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential cmake ninja-build \
+    && apt-get install -y --no-install-recommends build-essential cmake ninja-build git \
     && rm -rf /var/lib/apt/lists/* \
     && python -m venv "$VIRTUAL_ENV"
 
@@ -19,7 +19,7 @@ COPY scripts/generate_python_proto.py ./scripts/generate_python_proto.py
 RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install grpcio-tools==1.83.1 \
     && python scripts/generate_python_proto.py \
-    && ZTFL_NATIVE_ARCH=OFF python -m pip install ".[benchmark]"
+    && ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CKKS=ON python -m pip install ".[benchmark]"
 
 FROM python:3.12-slim AS runtime
 

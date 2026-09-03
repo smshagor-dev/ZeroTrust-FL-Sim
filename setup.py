@@ -31,6 +31,7 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_BUILD_TYPE={build_type}",
             f"-DZTFL_NATIVE_ARCH={os.getenv('ZTFL_NATIVE_ARCH', 'ON')}",
             f"-DZTFL_ENABLE_OPENMP={os.getenv('ZTFL_ENABLE_OPENMP', 'ON')}",
+            f"-DZTFL_ENABLE_CKKS={os.getenv('ZTFL_ENABLE_CKKS', 'ON')}",
         ]
         build_args = ["--config", build_type]
 
@@ -60,7 +61,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="zerotrust-fl-sim",
-    version="0.3.0",
+    version="0.4.0",
     description="Zero-trust federated learning simulation runtime",
     python_requires=">=3.12",
     package_dir={"": "fl"},
@@ -76,6 +77,7 @@ setup(
         "vision": ["torchvision==0.29.0"],
         "proto": ["grpcio-tools==1.83.1"],
         "benchmark": ["cryptography>=45,<50", "matplotlib>=3.10,<4"],
+        "tenseal": ["tenseal==0.3.17"],
     },
     ext_modules=[CMakeExtension("zerotrust_fl_cpp")],
     cmdclass={"build_ext": CMakeBuild},
