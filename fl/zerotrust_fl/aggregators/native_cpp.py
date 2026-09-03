@@ -136,10 +136,12 @@ class CppByzantineAggregator:
             if detached.device.type == "cpu":
                 host = detached.to(dtype=torch.float32).contiguous()
             else:
+                # Native code reads host memory immediately. Keep the D2H copy
+                # synchronous so no accelerator stream can race the CPU reader.
                 host = detached.to(
                     device="cpu",
                     dtype=torch.float32,
-                    non_blocking=self.non_blocking_transfers,
+                    non_blocking=False,
                 ).contiguous()
 
             host_tensors.append(host)
