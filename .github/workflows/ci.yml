@@ -98,8 +98,10 @@ jobs:
     needs: [go, python-native]
     steps:
       - uses: actions/checkout@v6
-      - name: Validate observability overlay
-        run: docker compose -f docker-compose.yml -f docker-compose.observability.yml config >/dev/null
+      - name: Validate resilience overlays
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.observability.yml config >/dev/null
+          docker compose -f docker-compose.yml -f docker-compose.chaos.yml config >/dev/null
       - name: Prepare benchmark output
         run: |
           mkdir -p benchmarks/results
