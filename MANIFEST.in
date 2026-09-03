@@ -1,2 +1,2 @@
 include pyproject.toml
-recursive-include cpp CMakeLists.txt *.cpp *.hpp
+recursive-include cpp CMakeLists.txt *.cpp *.cu *.hpp
