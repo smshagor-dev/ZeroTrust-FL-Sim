@@ -11,7 +11,6 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset
-
 from zerotrust_fl.attacks import AttackConfig
 from zerotrust_fl.data import partition_dataset, partition_stats
 from zerotrust_fl.engine import (
@@ -126,17 +125,17 @@ def main() -> None:
         min_samples_per_client=max(1, min(8, len(train_dataset) // args.clients)),
     )
 
-    malicious_count = int(math.floor(args.clients * args.malicious_fraction))
+    malicious_count = math.floor(args.clients * args.malicious_fraction)
     rng = np.random.default_rng(args.seed)
     malicious_ids = (
-        set(
+        {
             int(value)
             for value in rng.choice(
                 args.clients,
                 size=malicious_count,
                 replace=False,
             ).tolist()
-        )
+        }
         if malicious_count
         else set()
     )
@@ -410,9 +409,9 @@ def _synthetic_dataset(
 
 def _dataset_targets(dataset: torch.utils.data.Dataset) -> np.ndarray:
     if hasattr(dataset, "targets"):
-        return np.asarray(getattr(dataset, "targets"), dtype=np.int64)
+        return np.asarray(dataset.targets, dtype=np.int64)
     if hasattr(dataset, "tensors"):
-        tensors = getattr(dataset, "tensors")
+        tensors = dataset.tensors
         if len(tensors) >= 2:
             return tensors[1].detach().cpu().numpy().astype(np.int64, copy=False)
     labels = []

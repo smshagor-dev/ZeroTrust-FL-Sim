@@ -148,7 +148,7 @@ def worker_process_main(
                 command=command,
                 device=device,
             )
-        except BaseException as exc:
+        except Exception as exc:  # noqa: BLE001 - process boundary reports worker failures
             result = WorkerResult(
                 node_id=config.node_id,
                 round_id=command.round_id,

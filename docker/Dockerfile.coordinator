@@ -13,6 +13,7 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
         --go_out=. --go_opt=module=github.com/smshagor-dev/ZeroTrust-FL-Sim \
         --go-grpc_out=. --go-grpc_opt=module=github.com/smshagor-dev/ZeroTrust-FL-Sim \
         proto/fl_service.proto \
+    && go mod tidy \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/certgen ./security
 

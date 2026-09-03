@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 
 import numpy as np
-
 from zerotrust_fl.privacy import (
     CKKSClientEncryptor,
     CKKSConfig,

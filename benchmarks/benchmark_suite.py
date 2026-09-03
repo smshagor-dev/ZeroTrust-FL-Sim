@@ -10,11 +10,12 @@ import os
 import statistics
 import tempfile
 import time
+from collections.abc import Callable, Iterable
 from concurrent import futures
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import Callable, Iterable
 
 import grpc
 import matplotlib
@@ -28,8 +29,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from torch.utils.data import TensorDataset
-
-from zerotrust_fl.aggregators.native_cpp import CppByzantineAggregator, native_extension_available
+from zerotrust_fl.aggregators.native_cpp import (
+    CppByzantineAggregator,
+    native_extension_available,
+)
 from zerotrust_fl.attacks import AttackConfig
 from zerotrust_fl.data import partition_dataset
 from zerotrust_fl.engine import (
@@ -160,8 +163,8 @@ def benchmark_aggregators(profile: str, seed: int) -> list[AggregationRecord]:
             numpy_result = numpy_fn(arrays)
             np.testing.assert_allclose(native_result.numpy(), numpy_result, rtol=2e-4, atol=2e-5)
 
-            native_ms = _median_duration_ms(lambda: native_fn(tensors), repeats)
-            numpy_ms = _median_duration_ms(lambda: numpy_fn(arrays), repeats)
+            native_ms = _median_duration_ms(partial(native_fn, tensors), repeats)
+            numpy_ms = _median_duration_ms(partial(numpy_fn, arrays), repeats)
             record = AggregationRecord(
                 algorithm=name,
                 parameters=parameters,
@@ -196,7 +199,7 @@ def _numpy_krum(updates: list[np.ndarray], *, f: int, k: int) -> np.ndarray:
 
 def _numpy_trimmed_mean(updates: list[np.ndarray], *, beta: float) -> np.ndarray:
     stacked = np.stack(updates, axis=0)
-    trim = int(math.floor(len(updates) * beta))
+    trim = math.floor(len(updates) * beta)
     if 2 * trim >= len(updates):
         raise ValueError("trim removes every update")
     ordered = np.sort(stacked, axis=0)
@@ -376,7 +379,7 @@ def benchmark_convergence(profile: str, seed: int) -> list[ConvergenceRecord]:
             seed=seed + int(fraction * 1_000),
             min_samples_per_client=8,
         )
-        malicious_count = min(clients - 1, int(round(clients * fraction)))
+        malicious_count = min(clients - 1, round(clients * fraction))
         malicious_ids = set(range(malicious_count))
         workers = []
         for client_id in range(clients):
