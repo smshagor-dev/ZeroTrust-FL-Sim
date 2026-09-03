@@ -22,6 +22,7 @@ from zerotrust_fl.engine import (
     WorkerConfig,
     WorkerSpec,
 )
+from zerotrust_fl.privacy import LocalDPConfig, RDPAccountant
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,6 +82,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--synthetic-features", type=int, default=20)
     parser.add_argument("--synthetic-classes", type=int, default=4)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--dp",
+        action="store_true",
+        help="enable release-level Local Differential Privacy on client model updates",
+    )
+    parser.add_argument("--dp-clip-norm", type=float, default=1.0)
+    parser.add_argument("--dp-noise-multiplier", type=float, default=1.0)
+    parser.add_argument("--dp-delta", type=float, default=1e-5)
+    parser.add_argument(
+        "--dp-adjacency",
+        choices=["replace", "add_remove"],
+        default="replace",
+    )
     return parser.parse_args()
 
 
@@ -90,6 +104,14 @@ def main() -> None:
         raise SystemExit("--clients must be positive")
     if not 0.0 <= args.malicious_fraction < 1.0:
         raise SystemExit("--malicious-fraction must be in [0, 1)")
+
+    local_dp = LocalDPConfig(
+        enabled=args.dp,
+        clip_norm=args.dp_clip_norm,
+        noise_multiplier=args.dp_noise_multiplier,
+        delta=args.dp_delta,
+        adjacency=args.dp_adjacency,
+    )
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -139,6 +161,7 @@ def main() -> None:
             seed=args.seed + client_id * 1009,
             malicious=malicious,
             attack=attack,
+            local_dp=local_dp,
         )
         workers.append(
             WorkerSpec(
@@ -186,6 +209,28 @@ def main() -> None:
                     "samples": stat.sample_count,
                     "classes": stat.class_counts,
                     "malicious": stat.client_id in malicious_ids,
+                },
+                sort_keys=True,
+            )
+        )
+
+    if local_dp.enabled:
+        accountant = RDPAccountant(local_dp, releases=args.rounds)
+        epsilon, optimal_order = accountant.epsilon()
+        print("\nLocal DP worst-case budget:")
+        print(
+            json.dumps(
+                {
+                    "adjacency": local_dp.adjacency,
+                    "clip_norm": local_dp.clip_norm,
+                    "sensitivity": local_dp.sensitivity,
+                    "noise_multiplier": local_dp.noise_multiplier,
+                    "noise_std": local_dp.noise_std,
+                    "delta": local_dp.delta,
+                    "assumed_releases": args.rounds,
+                    "epsilon": epsilon,
+                    "optimal_rdp_order": optimal_order,
+                    "note": "worst-case per-client bound assuming participation in every round",
                 },
                 sort_keys=True,
             )
