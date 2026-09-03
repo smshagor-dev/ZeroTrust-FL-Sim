@@ -20,6 +20,13 @@ x-worker-common: &worker-common
     retries: 5
     start_period: 15s
 
+x-worker-privacy: &worker-privacy
+  ZTFL_DP_ENABLED: ${ZTFL_DP_ENABLED:-false}
+  ZTFL_DP_CLIP_NORM: ${ZTFL_DP_CLIP_NORM:-1.0}
+  ZTFL_DP_NOISE_MULTIPLIER: ${ZTFL_DP_NOISE_MULTIPLIER:-1.0}
+  ZTFL_DP_DELTA: ${ZTFL_DP_DELTA:-1e-5}
+  ZTFL_DP_ADJACENCY: ${ZTFL_DP_ADJACENCY:-replace}
+
 services:
   certgen:
     build:
@@ -92,6 +99,7 @@ services:
   benign-worker-1:
     <<: *worker-common
     environment:
+      <<: *worker-privacy
       ZTFL_NODE_ID: benign-worker-1
       ZTFL_ATTACK: none
       ZTFL_WORKER_SEED: "101"
@@ -99,6 +107,7 @@ services:
   benign-worker-2:
     <<: *worker-common
     environment:
+      <<: *worker-privacy
       ZTFL_NODE_ID: benign-worker-2
       ZTFL_ATTACK: none
       ZTFL_WORKER_SEED: "202"
@@ -106,6 +115,7 @@ services:
   benign-worker-3:
     <<: *worker-common
     environment:
+      <<: *worker-privacy
       ZTFL_NODE_ID: benign-worker-3
       ZTFL_ATTACK: none
       ZTFL_WORKER_SEED: "303"
@@ -113,6 +123,7 @@ services:
   malicious-worker-1:
     <<: *worker-common
     environment:
+      <<: *worker-privacy
       ZTFL_NODE_ID: malicious-worker-1
       ZTFL_ATTACK: ${ZTFL_MALICIOUS_ATTACK:-gaussian}
       ZTFL_WORKER_SEED: "404"
