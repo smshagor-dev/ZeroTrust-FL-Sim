@@ -65,6 +65,17 @@ setup(
     python_requires=">=3.12",
     package_dir={"": "fl"},
     packages=find_packages(where="fl"),
+    install_requires=[
+        "torch==2.14.0",
+        "numpy>=2.3,<3.0",
+        "grpcio==1.83.1",
+        "protobuf>=7.35,<8.0",
+        "psutil>=7,<8",
+    ],
+    extras_require={
+        "vision": ["torchvision==0.29.0"],
+        "proto": ["grpcio-tools==1.83.1"],
+    },
     ext_modules=[CMakeExtension("zerotrust_fl_cpp")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
