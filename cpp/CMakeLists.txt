@@ -50,6 +50,7 @@ if(ZTFL_ENABLE_CKKS)
     set(SEAL_USE_ZLIB OFF CACHE BOOL "" FORCE)
     set(SEAL_USE_ZSTD OFF CACHE BOOL "" FORCE)
     set(SEAL_USE_INTEL_HEXL OFF CACHE BOOL "" FORCE)
+    set(SEAL_SECURE_COMPILE_OPTIONS ON CACHE BOOL "" FORCE)
     FetchContent_Declare(
         microsoft_seal
         GIT_REPOSITORY https://github.com/microsoft/SEAL.git
