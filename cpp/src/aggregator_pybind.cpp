@@ -238,13 +238,16 @@ coordinate before averaging the retained values.
     module.def(
         "ckks_encrypt",
         [](const DoubleArray& values, py::bytes parameters, py::bytes public_key, int scale_bits) {
+            const std::vector<double> plaintext = flatten_double_array(values);
+            const std::string parameter_blob = static_cast<std::string>(parameters);
+            const std::string public_key_blob = static_cast<std::string>(public_key);
             std::vector<std::string> result;
             {
                 py::gil_scoped_release release;
                 result = privacy::ckks_encrypt(
-                    flatten_double_array(values),
-                    static_cast<std::string>(parameters),
-                    static_cast<std::string>(public_key),
+                    plaintext,
+                    parameter_blob,
+                    public_key_blob,
                     scale_bits
                 );
             }
@@ -264,12 +267,13 @@ coordinate before averaging the retained values.
     module.def(
         "ckks_add",
         [](const std::vector<std::vector<std::string>>& encrypted_updates, py::bytes parameters) {
+            const std::string parameter_blob = static_cast<std::string>(parameters);
             std::vector<std::string> result;
             {
                 py::gil_scoped_release release;
                 result = privacy::ckks_add_ciphertext_sets(
                     encrypted_updates,
-                    static_cast<std::string>(parameters)
+                    parameter_blob
                 );
             }
             py::list output;
@@ -289,13 +293,15 @@ coordinate before averaging the retained values.
            py::bytes parameters,
            py::bytes secret_key,
            std::size_t original_size) {
+            const std::string parameter_blob = static_cast<std::string>(parameters);
+            const std::string secret_key_blob = static_cast<std::string>(secret_key);
             std::vector<double> result;
             {
                 py::gil_scoped_release release;
                 result = privacy::ckks_decrypt(
                     ciphertexts,
-                    static_cast<std::string>(parameters),
-                    static_cast<std::string>(secret_key),
+                    parameter_blob,
+                    secret_key_blob,
                     original_size
                 );
             }
