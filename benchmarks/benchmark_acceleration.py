@@ -8,7 +8,6 @@ from collections.abc import Callable
 from functools import partial
 
 import torch
-
 from zerotrust_fl.aggregators.native_cpp import (
     CppByzantineAggregator,
     CudaByzantineAggregator,
