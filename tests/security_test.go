@@ -195,11 +195,19 @@ func TestZeroTrustTransportAndAuthorization(t *testing.T) {
 
 	t.Run("tampered token is unauthenticated", func(t *testing.T) {
 		token := h.readToken(t, "edge-worker-02")
-		if strings.HasSuffix(token, "A") {
-			token = token[:len(token)-1] + "B"
-		} else {
-			token = token[:len(token)-1] + "A"
+		parts := strings.Split(token, ".")
+		if len(parts) != 3 || len(parts[2]) == 0 {
+			t.Fatalf("unexpected JWT format")
 		}
+		signature := []byte(parts[2])
+		if signature[0] == 'A' {
+			signature[0] = 'B'
+		} else {
+			signature[0] = 'A'
+		}
+		parts[2] = string(signature)
+		token = strings.Join(parts, ".")
+
 		client := h.newClient(t, "edge-worker-02", token)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
