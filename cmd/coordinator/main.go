@@ -14,6 +14,7 @@ import (
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	"github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/coordinator"
+	"github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/observability"
 	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -34,6 +35,10 @@ func main() {
 		maxMessage         = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 64<<20), "maximum gRPC request and response size")
 		pqcModeValue       = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
 		requirePQCIdentity = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
+		metricsAddress     = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "0.0.0.0:9464"), "Prometheus metrics listen address; empty disables the endpoint")
+		otelEndpoint       = flag.String("otel-endpoint", envString("ZTFL_OTEL_ENDPOINT", ""), "OTLP/gRPC trace collector endpoint; empty disables trace export")
+		otelInsecure       = flag.Bool("otel-insecure", envBool("ZTFL_OTEL_INSECURE", true), "use plaintext OTLP/gRPC to a trusted local collector")
+		telemetryInstance  = flag.String("telemetry-instance", envString("ZTFL_TELEMETRY_INSTANCE", "coordinator"), "OpenTelemetry/Prometheus instance identifier")
 	)
 	flag.Parse()
 
@@ -45,6 +50,18 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+
+	telemetry, err := observability.New(context.Background(), observability.Config{
+		ServiceName:  "zerotrust-fl-coordinator",
+		InstanceID:   *telemetryInstance,
+		MetricsAddr:  *metricsAddress,
+		OTLPEndpoint: *otelEndpoint,
+		OTLPInsecure: *otelInsecure,
+	})
+	if err != nil {
+		logger.Error("configure observability", "error", err)
+		os.Exit(1)
+	}
 
 	transportCreds, err := ztsecurity.ServerTransportCredentials(ztsecurity.ServerTLSOptions{
 		CertificateFile:    *serverCert,
@@ -84,7 +101,11 @@ func main() {
 
 	grpcServer := grpc.NewServer(
 		grpc.Creds(transportCreds),
-		grpc.ChainUnaryInterceptor(authorizer.UnaryServerInterceptor()),
+		grpc.StatsHandler(telemetry.GRPCStatsHandler()),
+		grpc.ChainUnaryInterceptor(
+			telemetry.UnaryServerInterceptor(),
+			authorizer.UnaryServerInterceptor(),
+		),
 		grpc.ChainStreamInterceptor(authorizer.StreamServerInterceptor()),
 		grpc.MaxRecvMsgSize(*maxMessage),
 		grpc.MaxSendMsgSize(*maxMessage),
@@ -113,6 +134,8 @@ func main() {
 			"mtls", true,
 			"pqc_key_exchange", string(pqcMode),
 			"pqc_identity_required", *requirePQCIdentity,
+			"metrics_address", *metricsAddress,
+			"otel_endpoint", *otelEndpoint,
 		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()
@@ -145,6 +168,12 @@ func main() {
 	case <-time.After(10 * time.Second):
 		logger.Warn("graceful shutdown timed out; forcing stop")
 		grpcServer.Stop()
+	}
+
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := telemetry.Shutdown(shutdownContext); err != nil {
+		logger.Warn("telemetry shutdown returned an error", "error", err)
 	}
 }
 
