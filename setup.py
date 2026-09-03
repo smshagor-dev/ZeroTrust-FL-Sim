@@ -60,7 +60,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="zerotrust-fl-sim",
-    version="0.2.0",
+    version="0.3.0",
     description="Zero-trust federated learning simulation runtime",
     python_requires=">=3.12",
     package_dir={"": "fl"},
