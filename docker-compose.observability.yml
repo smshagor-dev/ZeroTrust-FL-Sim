@@ -1,0 +1,167 @@
+services:
+  coordinator:
+    environment:
+      ZTFL_METRICS_ADDRESS: 0.0.0.0:9464
+      ZTFL_OTEL_ENDPOINT: otel-collector:4317
+      ZTFL_OTEL_INSECURE: "true"
+      ZTFL_TELEMETRY_INSTANCE: coordinator
+    networks:
+      - control-plane
+      - observability
+
+  benign-worker-1:
+    environment:
+      ZTFL_TELEMETRY_ENABLED: "true"
+      ZTFL_METRICS_HOST: 0.0.0.0
+      ZTFL_METRICS_PORT: "9465"
+      ZTFL_OTEL_ENDPOINT: otel-collector:4317
+      ZTFL_OTEL_INSECURE: "true"
+    networks:
+      - control-plane
+      - observability
+
+  benign-worker-2:
+    environment:
+      ZTFL_TELEMETRY_ENABLED: "true"
+      ZTFL_METRICS_HOST: 0.0.0.0
+      ZTFL_METRICS_PORT: "9465"
+      ZTFL_OTEL_ENDPOINT: otel-collector:4317
+      ZTFL_OTEL_INSECURE: "true"
+    networks:
+      - control-plane
+      - observability
+
+  benign-worker-3:
+    environment:
+      ZTFL_TELEMETRY_ENABLED: "true"
+      ZTFL_METRICS_HOST: 0.0.0.0
+      ZTFL_METRICS_PORT: "9465"
+      ZTFL_OTEL_ENDPOINT: otel-collector:4317
+      ZTFL_OTEL_INSECURE: "true"
+    networks:
+      - control-plane
+      - observability
+
+  malicious-worker-1:
+    environment:
+      ZTFL_TELEMETRY_ENABLED: "true"
+      ZTFL_METRICS_HOST: 0.0.0.0
+      ZTFL_METRICS_PORT: "9465"
+      ZTFL_OTEL_ENDPOINT: otel-collector:4317
+      ZTFL_OTEL_INSECURE: "true"
+    networks:
+      - control-plane
+      - observability
+
+  fl-simulator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    entrypoint: ["python", "/app/scripts/run_fl_sim.py"]
+    command:
+      - --clients
+      - "10"
+      - --clients-per-round
+      - "10"
+      - --min-results
+      - "10"
+      - --rounds
+      - "${ZTFL_OBSERVABILITY_ROUNDS:-1000}"
+      - --malicious-fraction
+      - "0.50"
+      - --attack
+      - collusion
+      - --collusion-scale
+      - "8"
+      - --aggregator
+      - median
+      - --backend
+      - auto
+      - --synthetic-samples
+      - "2000"
+      - --telemetry
+      - --metrics-port
+      - "9466"
+      - --otel-endpoint
+      - otel-collector:4317
+    environment:
+      ZTFL_OTEL_INSECURE: "true"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - observability
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.159.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      tempo:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - observability
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - coordinator
+      - fl-simulator
+    restart: unless-stopped
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana:13.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${ZTFL_GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    restart: unless-stopped
+    networks:
+      - observability
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  tempo_data:
+  prometheus_data:
+  grafana_data:
