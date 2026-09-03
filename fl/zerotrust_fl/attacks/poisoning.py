@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal
 
 import torch
 
-AttackKind = Literal["none", "label_flip", "gaussian", "sign_flip", "adaptive"]
+AttackKind = Literal[
+    "none",
+    "label_flip",
+    "gaussian",
+    "sign_flip",
+    "adaptive",
+    "collusion",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,10 +32,19 @@ class AttackConfig:
     sign_scale: float = 1.0
     adaptive_scale: float = 4.0
     adaptive_max_norm_ratio: float = 1.0
+    collusion_scale: float = 8.0
+    collusion_seed: int = 20_271
     seed: int = 42
 
     def __post_init__(self) -> None:
-        if self.kind not in {"none", "label_flip", "gaussian", "sign_flip", "adaptive"}:
+        if self.kind not in {
+            "none",
+            "label_flip",
+            "gaussian",
+            "sign_flip",
+            "adaptive",
+            "collusion",
+        }:
             raise ValueError(f"unsupported attack kind: {self.kind!r}")
         if not 0.0 <= self.probability <= 1.0:
             raise ValueError("attack probability must be in [0, 1]")
@@ -39,6 +56,8 @@ class AttackConfig:
             raise ValueError("adaptive_scale cannot be negative")
         if self.adaptive_max_norm_ratio <= 0:
             raise ValueError("adaptive_max_norm_ratio must be positive")
+        if self.collusion_scale < 0:
+            raise ValueError("collusion_scale cannot be negative")
         if self.source_class is not None and self.target_class is None and not self.label_mapping:
             raise ValueError("target_class is required when source_class is configured")
 
@@ -59,7 +78,7 @@ class PoisoningAttack:
 
     @property
     def attacks_updates(self) -> bool:
-        return self.config.kind in {"gaussian", "sign_flip", "adaptive"}
+        return self.config.kind in {"gaussian", "sign_flip", "adaptive", "collusion"}
 
     def transform_labels(
         self,
@@ -173,6 +192,14 @@ class PoisoningAttack:
                 max_norm_ratio=self.config.adaptive_max_norm_ratio,
             )
 
+        if kind == "collusion":
+            return _coordinated_collusion(
+                update,
+                round_id=round_id,
+                scale=self.config.collusion_scale,
+                shared_seed=self.config.collusion_seed,
+            )
+
         raise RuntimeError(f"unhandled attack kind: {kind!r}")
 
 
@@ -235,6 +262,23 @@ def adaptive_poison(
     return _adaptive_poison(update, scale=scale, max_norm_ratio=max_norm_ratio)
 
 
+def coordinated_collusion(
+    update: torch.Tensor,
+    *,
+    round_id: int = 0,
+    scale: float = 8.0,
+    shared_seed: int = 20_271,
+) -> torch.Tensor:
+    """Create a round-synchronized malicious direction shared by colluding clients."""
+
+    return _coordinated_collusion(
+        update,
+        round_id=round_id,
+        scale=scale,
+        shared_seed=shared_seed,
+    )
+
+
 def _adaptive_poison(
     update: torch.Tensor,
     *,
@@ -253,6 +297,39 @@ def _adaptive_poison(
     if candidate_norm > max_norm:
         candidate = candidate * (max_norm / candidate_norm)
     return candidate
+
+
+def _coordinated_collusion(
+    update: torch.Tensor,
+    *,
+    round_id: int,
+    scale: float,
+    shared_seed: int,
+) -> torch.Tensor:
+    original_norm = torch.linalg.vector_norm(update)
+    if not torch.isfinite(original_norm):
+        raise ValueError("update norm must be finite")
+    if original_norm.item() == 0.0 or scale == 0.0:
+        return torch.zeros_like(update)
+
+    generator = _generator_for(
+        update.device,
+        shared_seed,
+        round_id,
+        0,
+        stream=47,
+    )
+    signs = torch.randint(
+        0,
+        2,
+        tuple(update.shape),
+        generator=generator,
+        device=update.device,
+        dtype=torch.int64,
+    ).to(dtype=update.dtype)
+    signs = signs.mul_(2.0).sub_(1.0)
+    direction = signs / math.sqrt(float(update.numel()))
+    return direction.mul(original_norm * scale)
 
 
 def _generator_for(
