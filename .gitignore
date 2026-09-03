@@ -1,0 +1,121 @@
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.history/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.key
+*.pem
+certs/*
+!certs/.gitkeep
+
+# Go
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# C and C++
+cpp/build/
+cpp/out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.lo
+*.la
+*.exp
+*.so
+*.dylib
+*.dll
+
+# Model and ML artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+checkpoints/
+runs/
+artifacts/
+wandb/
+mlruns/
+
+# Generated experiment data
+data/
+datasets/
+outputs/
+results/
+benchmarks/results/
+
+# Generated protocol code
+gen/
+generated/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+.cache/
+*.tmp
+*.bak
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Profiling
+*.prof
+*.trace
+*.pprof
