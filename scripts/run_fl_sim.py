@@ -1,77 +1,308 @@
-"""Run an asynchronous multi-process federated-learning attack simulation."""
+"""Run a local asynchronous federated learning simulation."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
 import torch
-from torchvision import datasets, transforms
+from torch.utils.data import TensorDataset
 
-from zerotrust_fl.attacks.poisoning import AttackConfig
-from zerotrust_fl.data.partitioner import partition_dataset, partition_stats
-from zerotrust_fl.engine.coordinator import (
+from zerotrust_fl.attacks import AttackConfig
+from zerotrust_fl.data import partition_dataset, partition_stats
+from zerotrust_fl.engine import (
     AggregationConfig,
     AsyncFederatedCoordinator,
+    ModelSpec,
     SimulationConfig,
+    WorkerConfig,
+    WorkerSpec,
 )
-from zerotrust_fl.engine.worker import ModelSpec, WorkerConfig, WorkerSpec
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", choices=["fashion-mnist", "cifar10"], default="fashion-mnist")
+    parser = argparse.ArgumentParser(
+        description="Asynchronous multi-process ZeroTrust-FL simulation"
+    )
+    parser.add_argument(
+        "--dataset",
+        choices=["synthetic", "fashion-mnist", "cifar10"],
+        default="synthetic",
+    )
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--clients", type=int, default=10)
     parser.add_argument("--clients-per-round", type=int, default=None)
     parser.add_argument("--rounds", type=int, default=5)
-    parser.add_argument("--partition", choices=["iid", "dirichlet"], default="dirichlet")
     parser.add_argument("--alpha", type=float, default=0.3)
+    parser.add_argument(
+        "--partition",
+        choices=["iid", "dirichlet"],
+        default="dirichlet",
+    )
+    parser.add_argument("--malicious-fraction", type=float, default=0.2)
+    parser.add_argument(
+        "--attack",
+        choices=["none", "label_flip", "gaussian", "sign_flip", "adaptive"],
+        default="sign_flip",
+    )
+    parser.add_argument(
+        "--aggregator",
+        choices=["mean", "krum", "multi_krum", "trimmed_mean", "median"],
+        default="multi_krum",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "native", "torch"],
+        default="auto",
+    )
+    parser.add_argument("--byzantine-f", type=int, default=None)
+    parser.add_argument("--multi-krum-k", type=int, default=3)
+    parser.add_argument("--trim-beta", type=float, default=0.2)
     parser.add_argument("--local-epochs-min", type=int, default=1)
     parser.add_argument("--local-epochs-max", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--learning-rate", type=float, default=0.02)
-    parser.add_argument("--learning-rate-jitter", type=float, default=0.1)
+    parser.add_argument("--learning-rate", type=float, default=0.03)
     parser.add_argument("--optimizer", choices=["sgd", "adam"], default="sgd")
-    parser.add_argument(
-        "--aggregation",
-        choices=["mean", "krum", "multi_krum", "trimmed_mean", "median"],
-        default="median",
-    )
-    parser.add_argument("--aggregation-backend", choices=["auto", "native", "torch"], default="auto")
-    parser.add_argument("--byzantine-f", type=int, default=None)
-    parser.add_argument("--multi-krum-k", type=int, default=2)
-    parser.add_argument("--trim-beta", type=float, default=0.2)
-    parser.add_argument("--compromised-ratio", type=float, default=0.2)
-    parser.add_argument(
-        "--attack",
-        choices=["label_flip", "gaussian", "sign_flip", "adaptive"],
-        default="sign_flip",
-    )
-    parser.add_argument("--noise-std", type=float, default=10.0)
-    parser.add_argument("--sign-scale", type=float, default=5.0)
-    parser.add_argument("--adaptive-scale", type=float, default=4.0)
-    parser.add_argument("--adaptive-max-norm-ratio", type=float, default=1.0)
-    parser.add_argument("--compute-delay-max", type=float, default=0.05)
-    parser.add_argument("--network-delay-max", type=float, default=0.05)
     parser.add_argument("--round-timeout", type=float, default=120.0)
-    parser.add_argument("--min-results", type=int, default=None)
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--min-results",
+        type=int,
+        default=None,
+        help="minimum successful worker quorum; defaults to all selected clients",
+    )
+    parser.add_argument("--max-compute-delay", type=float, default=0.15)
+    parser.add_argument("--max-network-delay", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", default="")
+    parser.add_argument("--synthetic-samples", type=int, default=4000)
+    parser.add_argument("--synthetic-features", type=int, default=20)
+    parser.add_argument("--synthetic-classes", type=int, default=4)
+    parser.add_argument("--device", default="cpu")
     return parser.parse_args()
 
 
-def load_dataset(name: str, data_dir: str):
-    if name == "fashion-mnist":
+def main() -> None:
+    args = parse_args()
+    if args.clients <= 0:
+        raise SystemExit("--clients must be positive")
+    if not 0.0 <= args.malicious_fraction < 1.0:
+        raise SystemExit("--malicious-fraction must be in [0, 1)")
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    train_dataset, test_dataset, model_spec = load_dataset_and_model(args)
+    partitions = partition_dataset(
+        train_dataset,
+        args.clients,
+        strategy=args.partition,
+        alpha=args.alpha,
+        seed=args.seed,
+        min_samples_per_client=max(1, min(8, len(train_dataset) // args.clients)),
+    )
+
+    malicious_count = int(math.floor(args.clients * args.malicious_fraction))
+    rng = np.random.default_rng(args.seed)
+    malicious_ids = (
+        set(
+            int(value)
+            for value in rng.choice(
+                args.clients,
+                size=malicious_count,
+                replace=False,
+            ).tolist()
+        )
+        if malicious_count
+        else set()
+    )
+
+    workers: list[WorkerSpec] = []
+    for client_id in range(args.clients):
+        malicious = client_id in malicious_ids
+        attack = make_attack_config(args, client_id) if malicious else AttackConfig()
+        worker_config = WorkerConfig(
+            node_id=f"edge-worker-{client_id:02d}",
+            batch_size=args.batch_size,
+            local_epochs_min=args.local_epochs_min,
+            local_epochs_max=args.local_epochs_max,
+            learning_rate=args.learning_rate,
+            learning_rate_jitter=0.1,
+            optimizer=args.optimizer,
+            optimizer_kwargs={"momentum": 0.9} if args.optimizer == "sgd" else {},
+            device=args.device,
+            compute_delay_seconds=(0.0, args.max_compute_delay),
+            network_delay_seconds=(0.0, args.max_network_delay),
+            torch_num_threads=1,
+            seed=args.seed + client_id * 1009,
+            malicious=malicious,
+            attack=attack,
+        )
+        workers.append(
+            WorkerSpec(
+                config=worker_config,
+                sample_indices=tuple(int(index) for index in partitions[client_id]),
+            )
+        )
+
+    clients_per_round = args.clients_per_round or args.clients
+    min_results = args.min_results or clients_per_round
+    byzantine_f = (
+        args.byzantine_f
+        if args.byzantine_f is not None
+        else min(malicious_count, max(0, (min_results - 3) // 2))
+    )
+    k = min(
+        args.multi_krum_k,
+        max(1, min_results - byzantine_f - 2),
+    )
+
+    simulation = SimulationConfig(
+        rounds=args.rounds,
+        clients_per_round=clients_per_round,
+        min_results=min_results,
+        round_timeout_seconds=args.round_timeout,
+        start_method="spawn",
+        seed=args.seed,
+        evaluation_device=args.device,
+    )
+    aggregation = AggregationConfig(
+        method=args.aggregator,
+        backend=args.backend,
+        f=byzantine_f,
+        k=k,
+        beta=args.trim_beta,
+    )
+
+    targets = _dataset_targets(train_dataset)
+    print("Partition summary:")
+    for stat in partition_stats(targets, partitions):
+        print(
+            json.dumps(
+                {
+                    "client": stat.client_id,
+                    "samples": stat.sample_count,
+                    "classes": stat.class_counts,
+                    "malicious": stat.client_id in malicious_ids,
+                },
+                sort_keys=True,
+            )
+        )
+
+    coordinator = AsyncFederatedCoordinator(
+        dataset=train_dataset,
+        model_spec=model_spec,
+        workers=workers,
+        simulation=simulation,
+        aggregation=aggregation,
+        evaluation_dataset=test_dataset,
+    )
+    summary = coordinator.run()
+
+    print("\nRound metrics:")
+    for metrics in summary.rounds:
+        print(json.dumps(asdict(metrics), sort_keys=True))
+
+    print(
+        json.dumps(
+            {
+                "final_accuracy": summary.final_accuracy,
+                "final_loss": summary.final_loss,
+                "attack_mitigation_success_rate": summary.attack_mitigation_success_rate,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def make_attack_config(args: argparse.Namespace, client_id: int) -> AttackConfig:
+    common = {"seed": args.seed + client_id * 7919}
+    if args.attack == "label_flip":
+        return AttackConfig(
+            kind="label_flip",
+            source_class=0,
+            target_class=1,
+            probability=1.0,
+            **common,
+        )
+    if args.attack == "gaussian":
+        return AttackConfig(
+            kind="gaussian",
+            noise_mean=0.0,
+            noise_std=3.0,
+            **common,
+        )
+    if args.attack == "sign_flip":
+        return AttackConfig(
+            kind="sign_flip",
+            sign_scale=5.0,
+            **common,
+        )
+    if args.attack == "adaptive":
+        return AttackConfig(
+            kind="adaptive",
+            adaptive_scale=8.0,
+            adaptive_max_norm_ratio=1.0,
+            **common,
+        )
+    return AttackConfig(kind="none", **common)
+
+
+def load_dataset_and_model(
+    args: argparse.Namespace,
+) -> tuple[torch.utils.data.Dataset, torch.utils.data.Dataset, ModelSpec]:
+    if args.dataset == "synthetic":
+        train, test = _synthetic_dataset(
+            samples=args.synthetic_samples,
+            features=args.synthetic_features,
+            classes=args.synthetic_classes,
+            seed=args.seed,
+        )
+        return (
+            train,
+            test,
+            ModelSpec(
+                "zerotrust_fl.engine.models:mlp_classifier",
+                {
+                    "input_shape": [args.synthetic_features],
+                    "num_classes": args.synthetic_classes,
+                    "hidden_dim": 64,
+                },
+            ),
+        )
+
+    try:
+        from torchvision import datasets, transforms
+    except ImportError as exc:
+        raise SystemExit(
+            "torchvision is required for Fashion-MNIST/CIFAR-10; "
+            "install requirements.txt first"
+        ) from exc
+
+    data_root = str(Path(args.data_dir))
+    if args.dataset == "fashion-mnist":
         transform = transforms.ToTensor()
-        train = datasets.FashionMNIST(data_dir, train=True, download=True, transform=transform)
-        test = datasets.FashionMNIST(data_dir, train=False, download=True, transform=transform)
+        train = datasets.FashionMNIST(
+            data_root,
+            train=True,
+            download=True,
+            transform=transform,
+        )
+        test = datasets.FashionMNIST(
+            data_root,
+            train=False,
+            download=True,
+            transform=transform,
+        )
         model_spec = ModelSpec(
-            factory_path="zerotrust_fl.engine.models:mlp_classifier",
-            kwargs={"input_shape": [1, 28, 28], "num_classes": 10, "hidden_dim": 128},
+            "zerotrust_fl.engine.models:mlp_classifier",
+            {
+                "input_shape": [1, 28, 28],
+                "num_classes": 10,
+                "hidden_dim": 128,
+            },
         )
         return train, test, model_spec
 
@@ -84,144 +315,66 @@ def load_dataset(name: str, data_dir: str):
             ),
         ]
     )
-    train = datasets.CIFAR10(data_dir, train=True, download=True, transform=transform)
-    test = datasets.CIFAR10(data_dir, train=False, download=True, transform=transform)
+    train = datasets.CIFAR10(
+        data_root,
+        train=True,
+        download=True,
+        transform=transform,
+    )
+    test = datasets.CIFAR10(
+        data_root,
+        train=False,
+        download=True,
+        transform=transform,
+    )
     model_spec = ModelSpec(
-        factory_path="zerotrust_fl.engine.models:small_conv_classifier",
-        kwargs={"input_channels": 3, "num_classes": 10, "image_size": 32},
+        "zerotrust_fl.engine.models:small_conv_classifier",
+        {
+            "input_channels": 3,
+            "num_classes": 10,
+            "image_size": 32,
+        },
     )
     return train, test, model_spec
 
 
-def main() -> None:
-    args = parse_args()
-    if args.clients <= 0:
-        raise ValueError("clients must be positive")
-    if not 0.0 <= args.compromised_ratio < 1.0:
-        raise ValueError("compromised-ratio must be in [0, 1)")
-    if min(args.compute_delay_max, args.network_delay_max) < 0:
-        raise ValueError("delay maxima cannot be negative")
+def _synthetic_dataset(
+    *,
+    samples: int,
+    features: int,
+    classes: int,
+    seed: int,
+) -> tuple[TensorDataset, TensorDataset]:
+    if samples < classes * 10:
+        raise ValueError("synthetic sample count is too small")
+    generator = torch.Generator().manual_seed(seed)
+    weights = torch.randn(features, classes, generator=generator)
 
-    torch.manual_seed(args.seed)
-    train_dataset, test_dataset, model_spec = load_dataset(args.dataset, args.data_dir)
-    partitions = partition_dataset(
-        train_dataset,
-        args.clients,
-        strategy=args.partition,
-        alpha=args.alpha,
-        seed=args.seed,
-        min_samples_per_client=max(2, args.batch_size // 4),
-    )
-
-    rng = np.random.default_rng(args.seed)
-    compromised_count = int(round(args.clients * args.compromised_ratio))
-    compromised_ids = set(
-        int(value)
-        for value in rng.choice(args.clients, size=compromised_count, replace=False).tolist()
-    ) if compromised_count else set()
-
-    workers: list[WorkerSpec] = []
-    for client_id in range(args.clients):
-        malicious = client_id in compromised_ids
-        attack = AttackConfig(
-            kind=args.attack if malicious else "none",
-            source_class=0,
-            target_class=1,
-            noise_std=args.noise_std,
-            sign_scale=args.sign_scale,
-            adaptive_scale=args.adaptive_scale,
-            adaptive_max_norm_ratio=args.adaptive_max_norm_ratio,
-            seed=args.seed + client_id,
+    def make(count: int) -> TensorDataset:
+        inputs = torch.randn(count, features, generator=generator)
+        logits = inputs @ weights + 0.2 * torch.randn(
+            count,
+            classes,
+            generator=generator,
         )
-        workers.append(
-            WorkerSpec(
-                config=WorkerConfig(
-                    node_id=f"edge-worker-{client_id:03d}",
-                    batch_size=args.batch_size,
-                    local_epochs_min=args.local_epochs_min,
-                    local_epochs_max=args.local_epochs_max,
-                    learning_rate=args.learning_rate,
-                    learning_rate_jitter=args.learning_rate_jitter,
-                    optimizer=args.optimizer,
-                    device=args.device,
-                    compute_delay_seconds=(0.0, args.compute_delay_max),
-                    network_delay_seconds=(0.0, args.network_delay_max),
-                    seed=args.seed + client_id,
-                    malicious=malicious,
-                    attack=attack,
-                ),
-                sample_indices=tuple(int(index) for index in partitions[client_id]),
-            )
-        )
+        labels = logits.argmax(dim=1)
+        return TensorDataset(inputs, labels)
 
-    selected_count = args.clients_per_round or args.clients
-    byzantine_f = args.byzantine_f
-    if byzantine_f is None:
-        byzantine_f = min(compromised_count, max(0, (selected_count - 3) // 2))
+    return make(samples), make(max(classes * 20, samples // 4))
 
-    coordinator = AsyncFederatedCoordinator(
-        dataset=train_dataset,
-        model_spec=model_spec,
-        workers=workers,
-        simulation=SimulationConfig(
-            rounds=args.rounds,
-            clients_per_round=args.clients_per_round,
-            min_results=args.min_results,
-            round_timeout_seconds=args.round_timeout,
-            start_method="spawn",
-            seed=args.seed,
-            evaluation_device=args.device,
-        ),
-        aggregation=AggregationConfig(
-            method=args.aggregation,
-            backend=args.aggregation_backend,
-            f=byzantine_f,
-            k=args.multi_krum_k,
-            beta=args.trim_beta,
-        ),
-        evaluation_dataset=test_dataset,
-    )
 
-    print("partition statistics:")
-    for stat in partition_stats(train_dataset, partitions):
-        print(json.dumps({
-            "client": stat.client_id,
-            "samples": stat.sample_count,
-            "classes": stat.class_counts,
-        }))
-
-    summary = coordinator.run()
-    records: list[dict[str, object]] = []
-    for metrics in summary.rounds:
-        record = {
-            "round": metrics.round_id,
-            "selected": len(metrics.selected_clients),
-            "completed": len(metrics.completed_clients),
-            "failed": list(metrics.failed_clients),
-            "stragglers": list(metrics.straggler_clients),
-            "malicious_results": metrics.malicious_results,
-            "aggregation_backend": metrics.aggregation_backend,
-            "aggregation_method": metrics.aggregation_method,
-            "mean_client_loss": metrics.mean_client_loss,
-            "evaluation_loss": metrics.evaluation_loss,
-            "evaluation_accuracy": metrics.evaluation_accuracy,
-            "mitigation_score": metrics.mitigation_score,
-            "attack_mitigated": metrics.attack_mitigated,
-            "round_duration_ms": metrics.round_duration_ms,
-        }
-        records.append(record)
-        print(json.dumps(record))
-
-    print(json.dumps({
-        "attack_mitigation_success_rate": summary.attack_mitigation_success_rate,
-        "final_accuracy": summary.final_accuracy,
-        "final_loss": summary.final_loss,
-    }))
-
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(records, indent=2), encoding="utf-8")
+def _dataset_targets(dataset: torch.utils.data.Dataset) -> np.ndarray:
+    if hasattr(dataset, "targets"):
+        return np.asarray(getattr(dataset, "targets"), dtype=np.int64)
+    if hasattr(dataset, "tensors"):
+        tensors = getattr(dataset, "tensors")
+        if len(tensors) >= 2:
+            return tensors[1].detach().cpu().numpy().astype(np.int64, copy=False)
+    labels = []
+    for index in range(len(dataset)):
+        label = dataset[index][1]
+        labels.append(int(label.item() if isinstance(label, torch.Tensor) else label))
+    return np.asarray(labels, dtype=np.int64)
 
 
 if __name__ == "__main__":
