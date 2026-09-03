@@ -75,6 +75,7 @@ setup(
     extras_require={
         "vision": ["torchvision==0.29.0"],
         "proto": ["grpcio-tools==1.83.1"],
+        "benchmark": ["cryptography>=45,<50", "matplotlib>=3.10,<4"],
     },
     ext_modules=[CMakeExtension("zerotrust_fl_cpp")],
     cmdclass={"build_ext": CMakeBuild},

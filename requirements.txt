@@ -17,6 +17,7 @@ cryptography>=45,<50
 
 # Runtime utilities
 psutil>=7,<8
+matplotlib>=3.10,<4
 
 # Native extension
 pybind11==3.1.0

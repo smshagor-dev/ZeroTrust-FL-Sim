@@ -1,0 +1,121 @@
+name: zerotrust-fl-sim
+
+x-worker-common: &worker-common
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.worker
+  restart: unless-stopped
+  depends_on:
+    coordinator:
+      condition: service_healthy
+  volumes:
+    - pki_data:/certs:ro
+    - ./benchmarks/results:/app/benchmarks/results
+  networks:
+    - control-plane
+  healthcheck:
+    test: ["CMD-SHELL", "test -f /tmp/ztfl-worker.ready && kill -0 1"]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 15s
+
+services:
+  certgen:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.coordinator
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >-
+      rm -rf /certs/*;
+      /usr/local/bin/certgen
+      -out /certs
+      -server-name coordinator
+      -token-ttl 24h
+      -clients 'health-probe=edge-worker,benign-worker-1=edge-worker,benign-worker-2=edge-worker,benign-worker-3=edge-worker,malicious-worker-1=edge-worker';
+      chown -R 10001:10001 /certs
+    volumes:
+      - pki_data:/certs
+    restart: "no"
+    networks:
+      - control-plane
+
+  coordinator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.coordinator
+    restart: unless-stopped
+    depends_on:
+      certgen:
+        condition: service_completed_successfully
+    environment:
+      ZTFL_LISTEN_ADDRESS: 0.0.0.0:50051
+      ZTFL_SERVER_CERT: /certs/server.crt
+      ZTFL_SERVER_KEY: /certs/server.key
+      ZTFL_CLIENT_CA: /certs/ca.crt
+      ZTFL_JWT_PUBLIC_KEY: /certs/jwt_signing_public.pem
+      ZTFL_TRUST_DOMAIN: zerotrust-fl.local
+      ZTFL_TOKEN_ISSUER: zerotrust-fl-sim
+      ZTFL_TOKEN_AUDIENCE: zerotrust-fl-services
+      ZTFL_REGISTRATION_LEASE: 5m
+      ZTFL_MAX_MESSAGE_BYTES: "67108864"
+    ports:
+      - "50051:50051"
+    volumes:
+      - pki_data:/certs:ro
+    networks:
+      - control-plane
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          TOKEN=$$(cat /certs/health-probe.jwt);
+          /usr/local/bin/grpc_health_probe
+          -addr=127.0.0.1:50051
+          -tls
+          -tls-ca-cert=/certs/ca.crt
+          -tls-client-cert=/certs/health-probe.crt
+          -tls-client-key=/certs/health-probe.key
+          -tls-server-name=coordinator
+          -rpc-header="authorization: Bearer $$TOKEN"
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 5s
+
+  benign-worker-1:
+    <<: *worker-common
+    environment:
+      ZTFL_NODE_ID: benign-worker-1
+      ZTFL_ATTACK: none
+      ZTFL_WORKER_SEED: "101"
+
+  benign-worker-2:
+    <<: *worker-common
+    environment:
+      ZTFL_NODE_ID: benign-worker-2
+      ZTFL_ATTACK: none
+      ZTFL_WORKER_SEED: "202"
+
+  benign-worker-3:
+    <<: *worker-common
+    environment:
+      ZTFL_NODE_ID: benign-worker-3
+      ZTFL_ATTACK: none
+      ZTFL_WORKER_SEED: "303"
+
+  malicious-worker-1:
+    <<: *worker-common
+    environment:
+      ZTFL_NODE_ID: malicious-worker-1
+      ZTFL_ATTACK: ${ZTFL_MALICIOUS_ATTACK:-gaussian}
+      ZTFL_WORKER_SEED: "404"
+
+volumes:
+  pki_data:
+
+networks:
+  control-plane:
+    driver: bridge
+    internal: true

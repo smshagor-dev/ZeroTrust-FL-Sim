@@ -1,0 +1,46 @@
+FROM python:3.12-slim AS builder
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential cmake ninja-build \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m venv "$VIRTUAL_ENV"
+
+WORKDIR /app
+COPY pyproject.toml setup.py MANIFEST.in requirements.txt ./
+COPY cpp ./cpp
+COPY fl ./fl
+COPY proto ./proto
+COPY scripts/generate_python_proto.py ./scripts/generate_python_proto.py
+
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install grpcio-tools==1.83.1 \
+    && python scripts/generate_python_proto.py \
+    && ZTFL_NATIVE_ARCH=OFF python -m pip install ".[benchmark]"
+
+FROM python:3.12-slim AS runtime
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=1 \
+    ZTFL_CERT_DIR=/certs \
+    ZTFL_COORDINATOR_ADDRESS=coordinator:50051 \
+    ZTFL_SERVER_NAME=coordinator
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 ztfl \
+    && useradd --uid 10001 --gid ztfl --no-create-home --shell /usr/sbin/nologin ztfl
+
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY scripts/run_grpc_worker.py ./scripts/run_grpc_worker.py
+COPY benchmarks ./benchmarks
+
+USER 10001:10001
+ENTRYPOINT ["python", "/app/scripts/run_grpc_worker.py"]
