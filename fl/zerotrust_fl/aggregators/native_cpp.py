@@ -234,9 +234,8 @@ class CudaByzantineAggregator:
             raise ValueError("Multi-Krum candidate count k must satisfy 1 <= k <= n-f-2")
 
         with torch.cuda.device(prepared.reference.device):
-            distances = torch.full(
+            distances = torch.zeros(
                 (client_count, client_count),
-                float("inf"),
                 dtype=torch.float64,
                 device=prepared.reference.device,
             )
@@ -248,6 +247,7 @@ class CudaByzantineAggregator:
                 prepared.dimension,
                 prepared.stream.cuda_stream,
             )
+            distances.diagonal().fill_(float("inf"))
 
             nearest = torch.topk(
                 distances,
