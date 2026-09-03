@@ -53,17 +53,13 @@ func TestZeroTrustTransportAndAuthorization(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := &tls.Config{
+		clientConfig := &tls.Config{
 			MinVersion: tls.VersionTLS13,
 			MaxVersion: tls.VersionTLS13,
 			RootCAs:    roots,
 			ServerName: h.serverName,
 		}
-		conn, err := tls.Dial("tcp", h.address, cfg)
-		if err == nil {
-			_ = conn.Close()
-			t.Fatal("TLS handshake unexpectedly succeeded without a client certificate")
-		}
+		assertServerRejectsTLSClient(t, h.serverTLSConfig(t), clientConfig)
 	})
 
 	t.Run("client certificate from untrusted CA is rejected", func(t *testing.T) {
@@ -90,18 +86,14 @@ func TestZeroTrustTransportAndAuthorization(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := &tls.Config{
+		clientConfig := &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			MaxVersion:   tls.VersionTLS13,
 			RootCAs:      roots,
 			ServerName:   h.serverName,
 			Certificates: []tls.Certificate{cert},
 		}
-		conn, err := tls.Dial("tcp", h.address, cfg)
-		if err == nil {
-			_ = conn.Close()
-			t.Fatal("TLS handshake unexpectedly succeeded with a certificate from an untrusted CA")
-		}
+		assertServerRejectsTLSClient(t, h.serverTLSConfig(t), clientConfig)
 	})
 
 	t.Run("unregistered edge worker cannot submit update", func(t *testing.T) {
@@ -313,6 +305,49 @@ func newSecurityHarness(t *testing.T) *securityHarness {
 		issuer:      issuer,
 		audience:    audience,
 		artifacts:   artifacts,
+	}
+}
+
+func (h *securityHarness) serverTLSConfig(t *testing.T) *tls.Config {
+	t.Helper()
+	config, err := ztsecurity.ServerTLSConfig(ztsecurity.ServerTLSOptions{
+		CertificateFile:    h.artifacts.ServerCertificateFile,
+		PrivateKeyFile:     h.artifacts.ServerPrivateKeyFile,
+		ClientCAFile:       h.artifacts.CACertificateFile,
+		TrustDomain:        h.trustDomain,
+		AllowedClientRoles: []string{"edge-worker", "observer", "admin"},
+	})
+	if err != nil {
+		t.Fatalf("ServerTLSConfig() error = %v", err)
+	}
+	return config
+}
+
+func assertServerRejectsTLSClient(t *testing.T, serverConfig, clientConfig *tls.Config) {
+	t.Helper()
+
+	serverRaw, clientRaw := net.Pipe()
+	defer serverRaw.Close()
+	defer clientRaw.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	if err := serverRaw.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientRaw.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+
+	serverConn := tls.Server(serverRaw, serverConfig)
+	clientConn := tls.Client(clientRaw, clientConfig)
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- serverConn.Handshake()
+	}()
+
+	_ = clientConn.Handshake()
+	if err := <-serverErrors; err == nil {
+		t.Fatal("server unexpectedly accepted an unauthorized client certificate state")
 	}
 }
 
