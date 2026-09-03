@@ -1,0 +1,21 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: ztfl-worker-packet-loss-50
+  namespace: zerotrust-fl
+  labels:
+    app.kubernetes.io/part-of: zerotrust-fl-sim
+    chaos.zerotrust-fl/scenario: packet-loss-50
+spec:
+  action: loss
+  mode: all
+  selector:
+    namespaces:
+      - zerotrust-fl
+    labelSelectors:
+      app.kubernetes.io/component: worker
+  direction: both
+  loss:
+    loss: "50"
+    correlation: "25"
+  duration: "60s"
