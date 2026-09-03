@@ -32,6 +32,7 @@ require_command() {
 }
 
 require_command go
+require_command git
 require_command protoc
 require_command "$PYTHON_BIN"
 
@@ -71,8 +72,15 @@ source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements.txt
 python scripts/generate_python_proto.py
-ZTFL_NATIVE_ARCH=OFF python -m pip install -e .
+ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CKKS=ON python -m pip install -e .
 python -m pytest -q
+python - <<'PY'
+import zerotrust_fl_cpp as native
+if not native.ckks_enabled:
+    raise SystemExit("native CKKS backend is not enabled")
+print("native features:", "OpenMP=", native.openmp_enabled, "CKKS=", native.ckks_enabled)
+PY
+python scripts/demo_ckks_secure_aggregation.py --dimension 10000 --clients 4
 
 go run ./security \
   -out "$CERT_DIR" \
@@ -104,6 +112,10 @@ python scripts/run_grpc_worker.py \
   --node-id verify-worker \
   --cert-dir "$CERT_DIR" \
   --attack none \
+  --dp \
+  --dp-clip-norm 1.0 \
+  --dp-noise-multiplier 2.0 \
+  --dp-delta 1e-5 \
   --once
 
 kill "$COORDINATOR_PID"
@@ -120,6 +132,10 @@ python scripts/run_fl_sim.py \
   --attack sign_flip \
   --aggregator median \
   --backend native \
+  --dp \
+  --dp-clip-norm 1.0 \
+  --dp-noise-multiplier 2.0 \
+  --dp-delta 1e-5 \
   --max-compute-delay 0.01 \
   --max-network-delay 0.01
 
