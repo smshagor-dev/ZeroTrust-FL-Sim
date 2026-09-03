@@ -32,6 +32,7 @@ class CMakeBuild(build_ext):
             f"-DZTFL_NATIVE_ARCH={os.getenv('ZTFL_NATIVE_ARCH', 'ON')}",
             f"-DZTFL_ENABLE_OPENMP={os.getenv('ZTFL_ENABLE_OPENMP', 'ON')}",
             f"-DZTFL_ENABLE_CKKS={os.getenv('ZTFL_ENABLE_CKKS', 'ON')}",
+            f"-DZTFL_ENABLE_CUDA={os.getenv('ZTFL_ENABLE_CUDA', 'AUTO')}",
         ]
         build_args = ["--config", build_type]
 

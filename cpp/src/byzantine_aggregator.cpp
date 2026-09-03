@@ -1,4 +1,5 @@
 #include "byzantine_aggregator.hpp"
+#include "simd_distance.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -53,19 +54,11 @@ std::size_t validate_updates(std::span<const UpdateView> updates) {
     return dimension;
 }
 
-double squared_euclidean_distance(const UpdateView& lhs, const UpdateView& rhs) {
-    double sum = 0.0;
-#ifdef ZTFL_HAS_OPENMP
-#pragma omp simd reduction(+ : sum)
-#endif
-    for (std::size_t i = 0; i < lhs.size; ++i) {
-        const double delta = static_cast<double>(lhs.data[i]) - static_cast<double>(rhs.data[i]);
-        sum += delta * delta;
-    }
-    return sum;
-}
-
 }  // namespace
+
+const char* simd_backend() noexcept {
+    return detail::active_simd_backend();
+}
 
 std::vector<float> krum_aggregate(
     std::span<const UpdateView> updates,
@@ -91,7 +84,11 @@ std::vector<float> krum_aggregate(
     for (std::ptrdiff_t i_raw = 0; i_raw < static_cast<std::ptrdiff_t>(n); ++i_raw) {
         const std::size_t i = static_cast<std::size_t>(i_raw);
         for (std::size_t j = i + 1; j < n; ++j) {
-            const double distance = squared_euclidean_distance(updates[i], updates[j]);
+            const double distance = detail::squared_euclidean_distance_simd(
+                updates[i].data,
+                updates[j].data,
+                dimension
+            );
             distances[i * n + j] = distance;
             distances[j * n + i] = distance;
         }

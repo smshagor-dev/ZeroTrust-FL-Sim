@@ -70,6 +70,7 @@ jobs:
           ZTFL_NATIVE_ARCH: 'OFF'
           ZTFL_ENABLE_OPENMP: 'ON'
           ZTFL_ENABLE_CKKS: 'ON'
+          ZTFL_ENABLE_CUDA: 'OFF'
         run: python -m pip install -e .
       - name: Test privacy and CKKS path
         run: python -m pytest -q tests/test_privacy.py
@@ -78,8 +79,12 @@ jobs:
           python -c "import zerotrust_fl_cpp as native;
           print('version:', native.__version__);
           print('OpenMP:', native.openmp_enabled);
+          print('SIMD:', native.simd_backend);
           print('CKKS:', native.ckks_enabled);
-          assert native.ckks_enabled"
+          print('CUDA:', native.cuda_enabled);
+          assert native.ckks_enabled;
+          assert native.simd_backend in {'scalar', 'avx512', 'neon'};
+          assert not native.cuda_enabled"
       - name: Lint Python
         run: ruff check fl scripts tests benchmarks --exclude 'fl/zerotrust_fl/protocols/fl_service_pb2*.py'
       - name: Test Python and native extension
