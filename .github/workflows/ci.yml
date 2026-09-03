@@ -81,7 +81,7 @@ jobs:
           print('CKKS:', native.ckks_enabled);
           assert native.ckks_enabled"
       - name: Lint Python
-        run: ruff check fl scripts tests benchmarks
+        run: ruff check fl scripts tests benchmarks --exclude 'fl/zerotrust_fl/protocols/fl_service_pb2*.py'
       - name: Test Python and native extension
         run: python -m pytest -q --cov=zerotrust_fl --cov-report=term-missing --cov-report=xml
 

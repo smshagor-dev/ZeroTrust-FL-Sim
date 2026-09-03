@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 import torch
@@ -47,7 +47,7 @@ class CKKSKeyMaterial:
     scale_bits: int
 
     @classmethod
-    def generate(cls, config: CKKSConfig | None = None) -> "CKKSKeyMaterial":
+    def generate(cls, config: CKKSConfig | None = None) -> CKKSKeyMaterial:
         _require_native_ckks()
         cfg = config or CKKSConfig()
         raw = _native.ckks_generate_key_material(

@@ -10,7 +10,6 @@ from pathlib import Path
 import grpc
 import torch
 from torch import nn
-
 from zerotrust_fl.attacks import AttackConfig, PoisoningAttack
 from zerotrust_fl.client import GrpcWorkerClient, GrpcWorkerConfig, UpdateMetrics
 from zerotrust_fl.privacy import LocalDPConfig, RDPAccountant, protect_model_update

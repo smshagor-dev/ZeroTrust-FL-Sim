@@ -58,7 +58,7 @@ def _torch_updates(
 
 
 def test_native_module_metadata() -> None:
-    assert native.__version__ == "0.2.0"
+    assert native.__version__ == "0.4.0"
     assert isinstance(native.openmp_enabled, bool)
 
 

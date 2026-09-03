@@ -10,12 +10,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 import grpc
 import numpy as np
 import psutil
 import torch
+from typing_extensions import Self
 
 TokenSource = Callable[[], str]
 
@@ -189,10 +191,15 @@ class GrpcWorkerClient:
     def close(self) -> None:
         self.channel.close()
 
-    def __enter__(self) -> "GrpcWorkerClient":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     def _metadata(self) -> tuple[tuple[str, str], ...]:

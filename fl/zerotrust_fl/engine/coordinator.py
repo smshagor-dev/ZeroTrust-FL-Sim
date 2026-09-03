@@ -490,7 +490,7 @@ class AsyncFederatedCoordinator:
         total = len(self.worker_specs)
         if self.simulation.clients_per_round is not None:
             return min(total, self.simulation.clients_per_round)
-        return max(1, int(math.ceil(total * self.simulation.client_fraction)))
+        return max(1, math.ceil(total * self.simulation.client_fraction))
 
     def _min_results_for(self, selected_count: int) -> int:
         configured = self.simulation.min_results
@@ -515,7 +515,7 @@ class AsyncFederatedCoordinator:
                 )
 
         if self.aggregation.method == "trimmed_mean":
-            trim = int(math.floor(self.aggregation.beta * minimum))
+            trim = math.floor(self.aggregation.beta * minimum)
             if 2 * trim >= minimum:
                 raise ValueError("trimmed mean would remove every client update")
 
@@ -552,7 +552,7 @@ def _torch_aggregate(
         return (sorted_values[middle - 1] + sorted_values[middle]) * 0.5
 
     if config.method == "trimmed_mean":
-        trim = int(math.floor(config.beta * stacked.shape[0]))
+        trim = math.floor(config.beta * stacked.shape[0])
         if 2 * trim >= stacked.shape[0]:
             raise ValueError("trimmed mean would remove every update")
         sorted_values, _ = torch.sort(stacked, dim=0)
