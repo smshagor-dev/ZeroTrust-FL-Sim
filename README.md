@@ -1,11 +1,11 @@
 # ZeroTrust-FL-Sim
 
 <p align="center">
-  <strong>Zero-Trust Federated Learning Simulation with Byzantine-Robust Native Aggregation</strong>
+  <strong>Zero-Trust Federated Learning Simulation with Byzantine-Robust Native Aggregation and Post-Quantum Transport</strong>
 </p>
 
 <p align="center">
-  A reproducible research platform for secure federated learning under non-IID data, asynchronous execution, malicious clients, Byzantine model poisoning, and zero-trust network controls.
+  A reproducible research platform for secure federated learning under non-IID data, asynchronous execution, malicious clients, Byzantine model poisoning, zero-trust network controls, and hybrid post-quantum TLS.
 </p>
 
 <p align="center">
@@ -13,7 +13,8 @@
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Python-%E2%89%A53.12-3776AB?logo=python&logoColor=white" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/PyTorch-2.14.0-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch 2.14.0">
-  <img src="https://img.shields.io/badge/gRPC-mTLS%20%2B%20JWT-244C5A" alt="gRPC mTLS JWT">
+  <img src="https://img.shields.io/badge/TLS-1.3%20mTLS-244C5A" alt="TLS 1.3 mTLS">
+  <img src="https://img.shields.io/badge/PQC-ML--KEM%20%2B%20ML--DSA-6f42c1" alt="PQC ML-KEM ML-DSA">
   <img src="https://img.shields.io/badge/License-not%20specified-lightgrey" alt="License not specified">
   <a href="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/workflows/ci.yml">
     <img src="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/workflows/ci.yml/badge.svg" alt="CI">
@@ -24,7 +25,9 @@
 
 ## Overview
 
-**ZeroTrust-FL-Sim** is a software-only federated learning platform for evaluating the interaction between learning robustness and zero-trust distributed-systems controls. It combines:
+**ZeroTrust-FL-Sim** is a software-only federated learning platform for evaluating the interaction between learning robustness, Byzantine fault tolerance, and zero-trust distributed-systems controls.
+
+The repository combines:
 
 - deterministic IID and Dirichlet non-IID data partitioning;
 - asynchronous multi-process PyTorch workers;
@@ -32,16 +35,17 @@
 - configurable straggler and network-delay simulation;
 - label-flipping, Gaussian, sign-flipping, and adaptive poisoning attacks;
 - native C++20 Krum, Multi-Krum, trimmed-mean, and coordinate-wise median aggregation;
-- OpenMP/SIMD acceleration through a `pybind11` extension;
+- OpenMP/SIMD acceleration through `pybind11`;
 - TLS 1.3 mutual authentication;
-- certificate-bound EdDSA JWT identities;
-- role-based gRPC authorization and live registration state;
+- hybrid ML-KEM key exchange with explicit `off`, `prefer`, and `require` policies;
+- optional ML-DSA-65 CA/server/client identities for strict post-quantum mTLS experiments;
+- certificate-bound JWT identities and role-based gRPC authorization;
 - Docker Compose orchestration for benign and malicious workers;
 - cross-language verification and automated benchmark generation.
 
-The project is intended for research and engineering work in federated learning, trustworthy AI, Byzantine fault tolerance, adversarial machine learning, secure distributed systems, and zero-trust architectures.
+The project is intended for research and engineering work in federated learning, trustworthy AI, Byzantine fault tolerance, adversarial machine learning, secure distributed systems, and post-quantum zero-trust architectures.
 
-> **Scope:** robust aggregation reduces exposure to specified Byzantine update models under explicit assumptions. It is not a universal defense against arbitrary backdoors, compromised training code, malicious data pipelines, stolen private keys, or violations of the assumed Byzantine bound.
+> **Scope:** robust aggregation and post-quantum transport address different threat classes. Neither provides a universal defense against arbitrary backdoors, compromised endpoints, poisoned data pipelines, stolen private keys, compromised coordinators, or violations of the stated Byzantine/PQC assumptions.
 
 ---
 
@@ -87,26 +91,27 @@ flowchart TD
     G --> C
 
     subgraph Control["Go Zero-Trust Control Plane"]
+        PQ["Hybrid ML-KEM KEX<br/>optional ML-DSA identities"]
         TLS["TLS 1.3 + mTLS"]
         JWT["EdDSA JWT Validation"]
         RBAC["RBAC / RPC Policy"]
         REG["Certificate-Bound Registration"]
         GRPC["gRPC Coordinator"]
-        TLS --> JWT --> RBAC --> REG --> GRPC
+        PQ --> TLS --> JWT --> RBAC --> REG --> GRPC
     end
 
-    W1 <-->|"mTLS gRPC"| GRPC
-    W2 <-->|"mTLS gRPC"| GRPC
-    WN <-->|"mTLS gRPC"| GRPC
+    W1 <-->|"secure gRPC"| GRPC
+    W2 <-->|"secure gRPC"| GRPC
+    WN <-->|"secure gRPC"| GRPC
 ```
 
-The local multiprocessing simulation and the Go network-security control plane are deliberately separable. This makes it possible to evaluate learning robustness independently of transport security, then verify the complete Python-to-Go trust boundary with mutual TLS and JWT authorization.
+The local multiprocessing simulation and the Go network-security control plane are deliberately separable. This permits independent measurement of learning robustness, Byzantine mitigation, transport overhead, and zero-trust authorization behavior.
 
 ---
 
 # Mathematical Foundations
 
-> GitHub math note: inline equations in this README use `$...$` and display equations use fenced `math` blocks. This avoids unsupported or inconsistently rendered Markdown/LaTeX delimiters in GitHub README rendering.
+> GitHub math note: inline equations use `$...$`; display equations use fenced `math` blocks. This avoids unsupported or inconsistently rendered GitHub README macros and delimiters.
 
 ## Federated Learning Objective
 
@@ -194,7 +199,7 @@ For each class $c$, ZeroTrust-FL-Sim samples a client-proportion vector from a s
 \right).
 ```
 
-A compact FL notation is:
+Compactly:
 
 ```math
 p_k \sim \mathrm{Dir}_K(\alpha).
@@ -218,11 +223,11 @@ p_k^{(c)} \ge 0,
 
 The concentration parameter $\alpha>0$ controls heterogeneity:
 
-- **small $\alpha$** produces sparse class allocations and strong client drift;
-- **$\alpha \approx 1$** produces moderate heterogeneity;
-- **large $\alpha$** concentrates class proportions near $1/K$, approaching an IID-like split.
+- **small $\alpha$**: sparse class allocation and strong client drift;
+- **$\alpha \approx 1$**: moderate heterogeneity;
+- **large $\alpha$**: proportions concentrate near $1/K$, approaching IID-like allocation.
 
-For the symmetric Dirichlet distribution:
+For a symmetric Dirichlet distribution:
 
 ```math
 \mathbb{E}\left[p_k^{(c)}\right]
@@ -230,13 +235,13 @@ For the symmetric Dirichlet distribution:
 \frac{1}{K}.
 ```
 
-Smaller $\alpha$ increases dispersion around that expectation. The implementation samples class-wise proportions, allocates every source sample exactly once, performs deterministic seeded retries, and can enforce a minimum number of samples per client. An IID baseline is provided through uniform random index partitioning.
+The implementation allocates every source sample exactly once, performs deterministic seeded retries, and can enforce a minimum number of samples per client.
 
 ---
 
 # Adversarial Threat Formulation
 
-Let $\mathcal{B}$ be the set of compromised clients and let $f=|\mathcal{B}|$ denote the assumed Byzantine count. A malicious worker may manipulate labels before training or directly transform the resulting model update.
+Let $\mathcal{B}$ be the compromised-client set and $f=|\mathcal{B}|$ the assumed Byzantine count.
 
 ## Label-Flipping Attack
 
@@ -256,7 +261,7 @@ f_{\mathrm{label}}(y)
 y'.
 ```
 
-For targeted flipping from source class $a$ to target class $b$:
+For targeted flipping from class $a$ to class $b$:
 
 ```math
 f_{\mathrm{label}}(y)
@@ -267,19 +272,17 @@ y, & y\neq a.
 \end{cases}
 ```
 
-The implementation supports arbitrary label mappings and probabilistic activation. For binary labels without an explicit mapping, the two observed classes may be exchanged.
+## Additive Gaussian Noise Poisoning
 
-## Additive Gaussian / Matrix Noise Poisoning
-
-For malicious worker $i$, additive model poisoning is:
+For malicious worker $i$:
 
 ```math
 \widetilde{W}_i
 =
-W_i + \varepsilon_i.
+W_i + \varepsilon_i,
 ```
 
-The perturbation is sampled as:
+where:
 
 ```math
 \varepsilon_i
@@ -291,7 +294,7 @@ The perturbation is sampled as:
 \right).
 ```
 
-For the common zero-mean case:
+For the zero-mean case:
 
 ```math
 \widetilde{W}_i
@@ -305,11 +308,9 @@ W_i
 \right).
 ```
 
-Each coordinate therefore receives independent Gaussian perturbation with variance $\sigma^2$.
-
 ## Sign-Flipping Attack
 
-For an honest gradient or model delta $g_i$, a sign-flipping adversary submits:
+For honest gradient or model delta $g_i$:
 
 ```math
 \widetilde{g}_i
@@ -319,11 +320,9 @@ For an honest gradient or model delta $g_i$, a sign-flipping adversary submits:
 \gamma \ge 0.
 ```
 
-When $\gamma=1$, the direction is exactly inverted. Larger values increase the malicious magnitude.
-
 ## Adaptive Norm-Constrained Poisoning
 
-The adaptive attack first forms:
+First form:
 
 ```math
 g_i^{\star}
@@ -333,7 +332,7 @@ g_i^{\star}
 s \ge 0.
 ```
 
-Let the permitted norm envelope be:
+Let:
 
 ```math
 r_{\max}
@@ -343,7 +342,7 @@ r_{\max}
 \rho > 0.
 ```
 
-The submitted attack is:
+Then submit:
 
 ```math
 \widetilde{g}_i
@@ -357,19 +356,17 @@ r_{\max}
 \end{cases}
 ```
 
-This preserves an attacker-selected opposite direction while constraining the submitted update to a configurable Euclidean norm envelope.
-
 ---
 
 # C++20 Byzantine-Robust Aggregation
 
-The native module is `zerotrust_fl_cpp`. PyTorch wrappers expose it through `zerotrust_fl.aggregators.CppByzantineAggregator`.
+The native module is `zerotrust_fl_cpp`, exposed to PyTorch through `zerotrust_fl.aggregators.CppByzantineAggregator`.
 
-All client updates must have the same shape and contain finite values. Native input is contiguous `float32`; Krum distances and aggregation sums use `double` accumulation where appropriate.
+All updates must have identical shape and finite values. Native input is contiguous `float32`; Krum distance and aggregation accumulations use `double` where appropriate.
 
 ## Krum and Multi-Krum
 
-Let the $n$ submitted client updates be:
+Let:
 
 ```math
 W_1,
@@ -388,12 +385,10 @@ D_{ij}
 \lVert W_i-W_j\rVert_2^2
 =
 \sum_{r=1}^{d}
-\left(
-w_{i,r}-w_{j,r}
-\right)^2.
+\left(w_{i,r}-w_{j,r}\right)^2.
 ```
 
-For client $i$, let $\mathcal{N}_i$ contain its $n-f-2$ nearest peer updates. The Krum score is:
+For client $i$, let $\mathcal{N}_i$ contain its $n-f-2$ nearest peers. The Krum score is:
 
 ```math
 S_i
@@ -402,40 +397,21 @@ S_i
 \lVert W_i-W_j\rVert_2^2.
 ```
 
-This is the precise version of the shorthand score:
-
-```math
-S_i
-=
-\sum_{j\in i\rightarrow k}
-\lVert W_i-W_j\rVert_2^2.
-```
-
-The native implementation requires:
+The implementation requires:
 
 ```math
 n \ge 2f+3.
 ```
 
-Its nearest-neighbor set size is:
-
-```math
-|\mathcal{N}_i|
-=
-n-f-2.
-```
-
-### Classic Krum
-
-The selected update index is:
+Classic Krum selects:
 
 ```math
 i^{\star}
 =
-\arg\min_i S_i.
+\arg\min_i S_i,
 ```
 
-Classic Krum returns:
+and returns:
 
 ```math
 \mathcal{A}_{\mathrm{Krum}}
@@ -443,15 +419,13 @@ Classic Krum returns:
 W_{i^{\star}}.
 ```
 
-### Multi-Krum
-
-Let $\mathcal{M}_m$ contain the indices of the $m$ smallest Krum scores, subject to:
+For Multi-Krum, let $\mathcal{M}_m$ contain the $m$ smallest-score indices, with:
 
 ```math
 1 \le m \le n-f-2.
 ```
 
-Multi-Krum returns:
+Then:
 
 ```math
 \mathcal{A}_{\mathrm{MultiKrum}}
@@ -461,15 +435,9 @@ Multi-Krum returns:
 W_i.
 ```
 
-The case $m=1$ reduces to classic Krum.
-
-The native implementation builds a symmetric $n\times n$ distance matrix, selects nearest distances with `std::nth_element`, applies deterministic index tie breaking, and parallelizes distance rows, score calculation, and selected-update averaging with OpenMP.
-
----
-
 ## Adaptive Trimmed Mean
 
-For coordinate $j$, sort the submitted values:
+For coordinate $j$, sort:
 
 ```math
 w_j^{(1)}
@@ -481,29 +449,27 @@ w_j^{(2)}
 w_j^{(n)}.
 ```
 
-A common canonical form sets:
+A common canonical definition uses:
 
 ```math
 b
 =
-\lceil \beta n \rceil.
+\lceil \beta n \rceil
 ```
 
-It then computes:
+and:
 
 ```math
 \bar{w}_j
 =
 \frac{1}{n-2\lceil\beta n\rceil}
 \sum_{i=\lceil\beta n\rceil+1}^{n-\lceil\beta n\rceil}
-w_j^{(i)},
-\qquad
-0 \le \beta < \frac{1}{2}.
+w_j^{(i)}.
 ```
 
 ### Exact repository operator
 
-The C++ implementation intentionally uses:
+The C++ implementation uses:
 
 ```math
 b_{\mathrm{impl}}
@@ -511,39 +477,25 @@ b_{\mathrm{impl}}
 \lfloor \beta n \rfloor.
 ```
 
-It then computes:
+It computes:
 
 ```math
 \bar{w}_{j,\mathrm{impl}}
 =
 \frac{1}{n-2b_{\mathrm{impl}}}
 \sum_{i=b_{\mathrm{impl}}+1}^{n-b_{\mathrm{impl}}}
-w_j^{(i)}.
+w_j^{(i)},
 ```
 
-The implementation additionally requires:
+subject to:
 
 ```math
 2b_{\mathrm{impl}} < n.
 ```
 
-This distinction is important for exact experimental reproduction: the canonical equation above uses `ceil`, while the repository executes `floor`.
-
----
-
 ## Coordinate-Wise Median
 
-For each coordinate $j$, let the ordered values satisfy:
-
-```math
-w_j^{(1)}
-\le
-\cdots
-\le
-w_j^{(n)}.
-```
-
-For odd $n$:
+For ordered values $w_j^{(1)}\le\cdots\le w_j^{(n)}$, odd $n$ uses:
 
 ```math
 \widehat{w}_j
@@ -551,7 +503,7 @@ For odd $n$:
 w_j^{((n+1)/2)}.
 ```
 
-For even $n$:
+Even $n$ uses:
 
 ```math
 \widehat{w}_j
@@ -564,7 +516,7 @@ w_j^{(n/2+1)}
 \right).
 ```
 
-The full coordinate-wise median aggregate is:
+The aggregate is:
 
 ```math
 \mathcal{A}_{\mathrm{median}}
@@ -576,18 +528,13 @@ The full coordinate-wise median aggregate is:
 \right).
 ```
 
-This is a **coordinate-wise median**, not a geometric or spatial median over $\mathbb{R}^{d}$. Each parameter dimension is solved independently. The implementation uses `std::nth_element`; for even $n$, it combines the upper-middle order statistic with the maximum element below that partition.
+This is coordinate-wise median, not a geometric/spatial median.
 
 ---
 
 # Computational Complexity
 
-Let:
-
-- $n$ = number of client updates;
-- $d$ = parameters per update;
-- $m$ = Multi-Krum candidate count;
-- $P$ = effective CPU worker threads.
+Let $n$ be client count, $d$ model dimension, $m$ Multi-Krum candidate count, and $P$ effective CPU threads.
 
 ## Krum / Multi-Krum
 
@@ -599,15 +546,7 @@ There are:
 \frac{n(n-1)}{2}
 ```
 
-pairwise distances, and every distance scans $d$ coordinates. Therefore:
-
-```math
-T_{\mathrm{distance}}
-=
-\Theta(n^2d).
-```
-
-Nearest-neighbor score selection adds approximately $O(n^2)$ expected work, and averaging $m$ selected updates costs $O(md)$. Hence:
+pairwise distances. Each scans $d$ coordinates, giving:
 
 ```math
 T_{\mathrm{Krum}}
@@ -625,9 +564,9 @@ O(n^2d+md)
 O(n^2d)
 ```
 
-for typical regimes with $m\le n$.
+for typical $m\le n$.
 
-The explicit native distance matrix requires:
+The explicit distance matrix adds:
 
 ```math
 S_{\mathrm{Krum}}
@@ -635,11 +574,11 @@ S_{\mathrm{Krum}}
 O(n^2)
 ```
 
-additional scalar storage, excluding the $O(nd)$ input tensors.
+scalar storage beyond the input updates.
 
 ## Trimmed Mean
 
-Sorting $n$ values for each of $d$ coordinates gives:
+Coordinate sorting gives:
 
 ```math
 T_{\mathrm{trim}}
@@ -647,11 +586,9 @@ T_{\mathrm{trim}}
 O(dn\log n).
 ```
 
-The implementation uses $O(n)$ coordinate-local scratch storage per active worker thread.
-
 ## Coordinate Median
 
-The implementation uses `std::nth_element` rather than a full sort. Its average selection work is linear in $n$, giving approximately:
+`std::nth_element` gives average selection work approximately:
 
 ```math
 T_{\mathrm{median}}
@@ -661,7 +598,7 @@ O(dn).
 
 ## Parallel Native Execution
 
-For distance-dominated Krum, idealized OpenMP scaling is:
+Idealized Krum scaling with $P$ OpenMP workers is:
 
 ```math
 \mathcal{T}_{\mathrm{parallel}}
@@ -681,20 +618,15 @@ O\left(
 \right).
 ```
 
-The repository uses **OpenMP** parallel loops and OpenMP SIMD reduction. It does not currently implement these aggregators with `std::execution::par`.
-
-Real speedup is bounded by synchronization, scheduling, memory bandwidth, cache locality, vectorization, and serial work. Amdahl's law gives the upper-bound model:
+Amdahl's law gives:
 
 ```math
 S(P)
 =
-\frac{1}
-{(1-\phi)+\phi/P},
+\frac{1}{(1-\phi)+\phi/P},
 ```
 
 where $\phi$ is the parallelizable fraction.
-
-## Complexity Summary
 
 | Algorithm | Serial time | Idealized parallel time | Extra algorithmic space |
 | --- | ---: | ---: | ---: |
@@ -703,27 +635,27 @@ where $\phi$ is the parallelizable fraction.
 | Trimmed mean | $O(dn\log n)$ | $O(dn\log n/P)$ | $O(Pn+d)$ scratch/result |
 | Coordinate median | expected $O(dn)$ | approximately $O(dn/P)$ | $O(Pn+d)$ scratch/result |
 
-Pure Python/NumPy reference implementations and native C++ implementations can have the same asymptotic workload while differing substantially in temporary allocation, interpreter overhead, vectorization, memory locality, GIL behavior, compiler optimization, and thread-level parallelism.
-
 ---
 
 # Zero-Trust Security Model
 
-ZeroTrust-FL-Sim treats network reachability as insufficient evidence of identity or authorization.
+Network reachability is never treated as sufficient evidence of federation membership or authorization.
 
-For protected coordinator RPCs, the trust chain is:
+For protected coordinator RPCs:
 
 1. TLS 1.3 handshake succeeds.
-2. The client certificate chains to the configured CA.
-3. Certificate CN, role OU, and URI SAN are internally consistent.
-4. Exactly one `Authorization: Bearer <JWT>` metadata value is present.
-5. The EdDSA JWT passes signature, issuer, audience, and expiry validation.
-6. JWT `sub`, `node_id`, and `role` match the certificate identity.
-7. The authenticated role is permitted to invoke the requested RPC.
-8. RPCs requiring membership verify live server-side registration.
-9. Registration is bound to the client certificate fingerprint.
+2. The selected PQC policy is enforced.
+3. The client certificate chains to the configured CA.
+4. If strict PQC identity mode is enabled, the peer leaf certificate must use ML-DSA.
+5. Certificate CN, role OU, and URI SAN are internally consistent.
+6. Exactly one bearer JWT is present.
+7. The JWT passes signature, issuer, audience, and expiry validation.
+8. JWT `sub`, `node_id`, and `role` match the authenticated certificate identity.
+9. The role is permitted to invoke the requested RPC.
+10. RPCs requiring membership verify live server-side registration.
+11. Registration is bound to the client certificate fingerprint.
 
-Example edge-worker identity:
+Example identity:
 
 ```text
 Subject CN: edge-worker-01
@@ -741,28 +673,249 @@ URI SAN:    spiffe://zerotrust-fl.local/node/edge-worker-01
 | `SubmitLocalUpdate` | `edge-worker`, `admin` | Yes |
 | gRPC health check | configured health identity | No |
 
-Unknown RPC methods are denied.
+Unknown methods are denied.
 
-## Security Properties Under the Stated Assumptions
+---
 
-If the configured CA, coordinator private key, worker private keys, and JWT signing key remain uncompromised, the design provides:
+# Post-Quantum Cryptography in the Transport Layer
 
-- authenticated encrypted transport;
-- certificate-based peer identity;
-- token-to-certificate identity binding;
-- role-scoped RPC authorization;
-- rejection of untrusted client CAs;
-- rejection of invalid or mismatched JWT claims;
-- coordinator-controlled registration state;
-- certificate-fingerprint binding of membership state.
+## Initial Security Motivation
 
-A correctly authenticated worker may still be malicious at the ML layer. Network zero-trust enforcement and Byzantine aggregation therefore address different parts of the threat model.
+TLS 1.3 itself remains a modern transport protocol, but a TLS deployment that relies only on classical elliptic-curve key exchange does not address the long-term **harvest-now-decrypt-later** threat from a future cryptographically relevant quantum computer.
+
+ZeroTrust-FL-Sim therefore adds explicit hybrid post-quantum key-exchange policy using Go 1.27's standardized ML-KEM support.
+
+Go 1.27 provides:
+
+- `X25519MLKEM768`;
+- `SecP256r1MLKEM768`;
+- `SecP384r1MLKEM1024`;
+- `MLKEM1024` support;
+- ML-DSA X.509/TLS signature support through `crypto/mldsa` and `crypto/x509`.
+
+The live coordinator transport uses Go's maintained `crypto/tls` implementation. Open Quantum Safe `liboqs-go` remains useful for experimental algorithms, independent KEM/signature testing, and cross-implementation validation, but it is not inserted into the live TLS state machine because Go 1.27 already implements the standardized TLS groups directly.
+
+This avoids:
+
+- a second TLS implementation;
+- mandatory CGo/pkg-config/liboqs runtime dependencies;
+- custom non-standard pre-handshake KEM protocols;
+- additional production attack surface.
+
+See [`docs/pqc-transport.md`](docs/pqc-transport.md) for the detailed rationale and transport model.
+
+## Hybrid Shared Secret
+
+For `X25519MLKEM768`, the conceptual pre-KDF secret is the concatenation of the ML-KEM and X25519 contributions:
+
+```math
+Z_{\mathrm{hybrid}}
+=
+Z_{\mathrm{MLKEM768}}
+\parallel
+Z_{\mathrm{X25519}}.
+```
+
+Each contribution is 32 bytes, therefore:
+
+```math
+|Z_{\mathrm{hybrid}}|
+=
+32 + 32
+=
+64\ \mathrm{bytes}.
+```
+
+TLS 1.3 feeds the negotiated secret into its normal HKDF-based key schedule.
+
+## PQC Transport Modes
+
+The coordinator exposes `ZTFL_PQC_MODE` / `--pqc-mode`:
+
+| Mode | Hybrid ML-KEM | Classical fallback | Use case |
+| --- | --- | --- | --- |
+| `off` | disabled | yes | classical control/baseline |
+| `prefer` | enabled | yes | default heterogeneous deployment |
+| `require` | required | no | strict PQC Go-to-Go experiment |
+
+`require` is enforced twice:
+
+- classical-only groups are removed from `tls.Config.CurvePreferences`;
+- `VerifyConnection` rejects a completed connection unless the negotiated `CurveID` contains an ML-KEM contribution.
+
+This prevents a deployment from being labeled PQC-required while silently falling back to classical-only key exchange.
+
+## ML-DSA Identity Mode
+
+Hybrid ML-KEM protects key establishment. Post-quantum authentication requires the certificate-signature side to migrate as well.
+
+Generate an ML-DSA-65 development PKI:
+
+```bash
+go run ./security \
+  -out certs/pqc \
+  -certificate-algorithm mldsa65
+```
+
+Run the coordinator with strict hybrid key exchange and strict ML-DSA identities:
+
+```bash
+go run ./cmd/coordinator \
+  -server-cert certs/pqc/server.crt \
+  -server-key certs/pqc/server.key \
+  -client-ca certs/pqc/ca.crt \
+  -jwt-public-key certs/pqc/jwt_signing_public.pem \
+  -pqc-mode require \
+  -pqc-require-identity
+```
+
+The Go client must set:
+
+```go
+PQCMode:            security.PQCRequired,
+RequirePQCIdentity: true,
+```
+
+Strict identity mode rejects a locally configured certificate that is not ML-DSA and rejects a peer whose verified leaf certificate is not ML-DSA.
+
+The JWT layer currently remains Ed25519. It is a secondary application-authorization factor and cannot bypass strict ML-DSA mTLS identity enforcement.
+
+## Exact X25519MLKEM768 Wire-Size Calculation
+
+Classical X25519 contributes a 32-byte raw key share in each direction.
+
+For `X25519MLKEM768`:
+
+- client key share: **1216 bytes** = 1184-byte ML-KEM-768 encapsulation key + 32-byte X25519 share;
+- server key share: **1120 bytes** = 1088-byte ML-KEM-768 ciphertext + 32-byte X25519 share.
+
+Client-side expansion:
+
+```math
+\Delta B_{\mathrm{client}}
+=
+1216 - 32
+=
+1184\ \mathrm{bytes}.
+```
+
+Client raw-share multiplier:
+
+```math
+R_{\mathrm{client}}
+=
+\frac{1216}{32}
+=
+38.
+```
+
+Server-side expansion:
+
+```math
+\Delta B_{\mathrm{server}}
+=
+1120 - 32
+=
+1088\ \mathrm{bytes}.
+```
+
+Server raw-share multiplier:
+
+```math
+R_{\mathrm{server}}
+=
+\frac{1120}{32}
+=
+35.
+```
+
+Combined classical raw key shares:
+
+```math
+B_{\mathrm{classical}}
+=
+32 + 32
+=
+64\ \mathrm{bytes}.
+```
+
+Combined hybrid raw key shares:
+
+```math
+B_{\mathrm{hybrid}}
+=
+1216 + 1120
+=
+2336\ \mathrm{bytes}.
+```
+
+Absolute increase:
+
+```math
+\Delta B_{\mathrm{hybrid}}
+=
+2336 - 64
+=
+2272\ \mathrm{bytes}.
+```
+
+Combined multiplier:
+
+```math
+R_{\mathrm{combined}}
+=
+\frac{2336}{64}
+=
+36.5.
+```
+
+These values describe only the raw TLS key-exchange payloads. They exclude TLS framing, X.509 chains, ML-DSA signatures, TCP/IP, HTTP/2, gRPC, and FL application data.
+
+## PQC Handshake Latency Calculation
+
+For measured classical handshake latency $T_{\mathrm{classical}}$ and hybrid latency $T_{\mathrm{PQC}}$:
+
+```math
+\Delta T_{\mathrm{PQC}}
+=
+T_{\mathrm{PQC}}
+-
+T_{\mathrm{classical}}.
+```
+
+Percentage overhead is:
+
+```math
+O_{\mathrm{PQC}}
+=
+100
+\left(
+\frac{T_{\mathrm{PQC}}}{T_{\mathrm{classical}}}
+-1
+\right)\%.
+```
+
+A benchmark result must record CPU, Go version, selected group, session reuse, network RTT, certificate algorithm, and PQC identity mode because there is no hardware-independent universal latency penalty.
+
+## Docker Compatibility
+
+The mixed Go/Python Compose testbed defaults to:
+
+```text
+ZTFL_PQC_MODE=prefer
+ZTFL_PQC_REQUIRE_IDENTITY=false
+ZTFL_CERTIFICATE_ALGORITHM=ed25519
+```
+
+This preserves compatibility with the existing Python gRPC workers while allowing hybrid negotiation with compatible peers.
+
+Strict ML-DSA Compose mode should only be enabled after confirming that the selected Python `grpcio`/BoringSSL build can parse and authenticate ML-DSA certificate chains.
 
 ---
 
 # Asynchronous FL Engine
 
-The PyTorch runtime uses persistent multiprocessing workers. Each simulated node owns its dataset shard, local model, optimizer configuration, optional attack configuration, deterministic seed, and latency configuration for its process lifetime.
+The PyTorch runtime uses persistent multiprocessing workers. Each simulated node owns its dataset shard, local model, optimizer configuration, optional attack configuration, deterministic seed, and latency configuration.
 
 The coordinator provides:
 
@@ -810,10 +963,7 @@ ZeroTrust-FL-Sim/
 │   └── coordinator/
 ├── cpp/
 │   ├── include/
-│   │   └── byzantine_aggregator.hpp
 │   └── src/
-│       ├── aggregator_pybind.cpp
-│       └── byzantine_aggregator.cpp
 ├── docker/
 │   ├── Dockerfile.coordinator
 │   └── Dockerfile.worker
@@ -821,23 +971,22 @@ ZeroTrust-FL-Sim/
 ├── docs/
 │   ├── fl-simulation.md
 │   ├── native-aggregation.md
+│   ├── pqc-transport.md
 │   └── security-transport.md
 ├── fl/zerotrust_fl/
 │   ├── aggregators/
 │   ├── attacks/
-│   │   └── poisoning.py
 │   ├── client/
-│   │   └── grpc_worker.py
 │   ├── data/
-│   │   └── partitioner.py
 │   ├── engine/
-│   │   ├── coordinator.py
-│   │   ├── models.py
-│   │   └── worker.py
 │   └── protocols/
-├── pkg/
-│   ├── coordinator/
-│   └── security/
+├── pkg/security/
+│   ├── middleware.go
+│   ├── pki.go
+│   ├── pqc.go
+│   ├── pqc_test.go
+│   ├── tls.go
+│   └── token.go
 ├── proto/
 │   └── fl_service.proto
 ├── scripts/
@@ -867,9 +1016,9 @@ ZeroTrust-FL-Sim/
 - CMake 3.24+
 - pybind11 3.1.x
 - Protocol Buffers compiler (`protoc`)
-- Docker with Compose v2 for the container testbed
+- Docker with Compose v2
 
-Linux CI compiles the native extension with GCC/G++ 12. CMake also supports compatible MSVC and Clang toolchains.
+Go 1.27 is specifically relevant to the strict PQC path because it provides ML-DSA support in the standard library in addition to the hybrid ML-KEM TLS groups.
 
 ---
 
@@ -908,13 +1057,13 @@ Generate Python protobuf bindings:
 python scripts/generate_python_proto.py
 ```
 
-Build and install the native module:
+Build native C++ aggregation:
 
 ```bash
 pip install -e .
 ```
 
-Verify the module:
+Verify:
 
 ```bash
 python -c "import zerotrust_fl_cpp as native; print(native.__version__, native.openmp_enabled)"
@@ -924,8 +1073,6 @@ python -c "import zerotrust_fl_cpp as native; print(native.__version__, native.o
 
 # Native C++20 Build
 
-Editable local build:
-
 ```bash
 ZTFL_ENABLE_OPENMP=ON ZTFL_NATIVE_ARCH=ON pip install -e .
 ```
@@ -934,14 +1081,6 @@ Portable build:
 
 ```bash
 ZTFL_NATIVE_ARCH=OFF pip install -e .
-```
-
-Windows PowerShell:
-
-```powershell
-$env:ZTFL_NATIVE_ARCH="OFF"
-$env:ZTFL_ENABLE_OPENMP="ON"
-pip install -e .
 ```
 
 Direct CMake build:
@@ -954,8 +1093,6 @@ cmake -S cpp -B cpp/build \
 
 cmake --build cpp/build --config Release --parallel
 ```
-
-The standalone CMake build writes the Python extension to `cpp/build/python/` unless the package build overrides the output directory.
 
 ---
 
@@ -974,31 +1111,51 @@ Generate Go bindings:
 make proto
 ```
 
-Generate development PKI:
+Generate interoperable development PKI:
 
 ```bash
 go run ./security -out certs/dev
 ```
 
-Run the coordinator:
+Run the coordinator with the default hybrid-preferred policy:
 
 ```bash
 go run ./cmd/coordinator
 ```
 
-Default local listener:
+Equivalent explicit command:
+
+```bash
+go run ./cmd/coordinator -pqc-mode prefer
+```
+
+Strict Go-only PQC setup:
+
+```bash
+go run ./security \
+  -out certs/pqc \
+  -certificate-algorithm mldsa65
+
+go run ./cmd/coordinator \
+  -server-cert certs/pqc/server.crt \
+  -server-key certs/pqc/server.key \
+  -client-ca certs/pqc/ca.crt \
+  -jwt-public-key certs/pqc/jwt_signing_public.pem \
+  -pqc-mode require \
+  -pqc-require-identity
+```
+
+Default listener:
 
 ```text
 127.0.0.1:50051
 ```
 
-Generated certificates, signing keys, JWTs, datasets, model binaries, and experiment outputs should not be committed.
-
 ---
 
 # Running Federated Simulations
 
-## Multi-Krum with Sign-Flipping Attackers
+Multi-Krum with sign-flipping workers:
 
 ```bash
 python scripts/run_fl_sim.py \
@@ -1015,7 +1172,7 @@ python scripts/run_fl_sim.py \
   --backend native
 ```
 
-## Trimmed Mean with Gaussian Poisoning
+Trimmed mean with Gaussian poisoning:
 
 ```bash
 python scripts/run_fl_sim.py \
@@ -1031,42 +1188,11 @@ python scripts/run_fl_sim.py \
   --backend native
 ```
 
-## Coordinate Median with Adaptive Poisoning
-
-```bash
-python scripts/run_fl_sim.py \
-  --dataset synthetic \
-  --clients 10 \
-  --rounds 10 \
-  --malicious-fraction 0.2 \
-  --attack adaptive \
-  --aggregator median \
-  --backend native
-```
-
-Available datasets:
-
-```text
-synthetic
-fashion-mnist
-cifar10
-```
-
 ---
 
 # Docker Zero-Trust Testbed
 
-The Compose stack defines:
-
-- a PKI generator;
-- the Go mTLS coordinator;
-- three benign Python workers;
-- one configurable malicious Python worker;
-- distinct certificate/JWT identities for every worker;
-- a dedicated health-probe identity;
-- an isolated internal bridge network.
-
-Start:
+Start the interoperable testbed:
 
 ```bash
 mkdir -p benchmarks/results
@@ -1081,93 +1207,47 @@ docker compose ps
 docker compose logs -f
 ```
 
-Override the malicious attack:
+Select malicious attack:
 
 ```bash
 ZTFL_MALICIOUS_ATTACK=label_flip docker compose up -d --build --wait
 ```
 
-or:
-
-```bash
-ZTFL_MALICIOUS_ATTACK=sign_flip docker compose up -d --build --wait
-```
-
-Stop and remove generated volumes:
+Stop:
 
 ```bash
 docker compose down -v --remove-orphans
 ```
 
-The coordinator health check uses mTLS, the development CA, a dedicated client certificate, TLS server-name verification, and JWT metadata rather than relying only on a raw TCP probe.
+PQC-related Compose variables:
+
+```text
+ZTFL_PQC_MODE
+ZTFL_PQC_REQUIRE_IDENTITY
+ZTFL_CERTIFICATE_ALGORITHM
+```
+
+Default values remain `prefer`, `false`, and `ed25519` respectively for Python-worker compatibility.
 
 ---
 
 # Performance Benchmarks
 
-`benchmarks/benchmark_suite.py` contains aggregation, network, and convergence benchmark families.
+`benchmarks/benchmark_suite.py` includes aggregation, transport, and convergence benchmarks.
 
-## C++20 vs NumPy Aggregation
-
-Full mode measures model dimensions:
+Full native-vs-reference aggregation dimensions:
 
 ```math
-d \in \{10^3,10^5,10^7\}
+d \in \{10^3,10^5,10^7\}.
 ```
 
-for:
-
-- Krum;
-- Multi-Krum;
-- trimmed mean.
-
-The native result is validated against the NumPy reference before timing.
-
-```bash
-python benchmarks/benchmark_suite.py \
-  --profile full \
-  --sections aggregation
-```
-
-## mTLS Network Overhead
-
-The transport benchmark compares the same gRPC echo operation over plaintext and mutual TLS and reports mean latency, p50 latency, p95 latency, and requests per second.
-
-```bash
-python benchmarks/benchmark_suite.py \
-  --profile full \
-  --sections network
-```
-
-## Convergence Under Poisoning
-
-Full convergence mode executes 50 federated rounds with 20 clients at exact malicious populations of:
-
-```math
-0\%,\qquad 10\%,\qquad 25\%,\qquad 40\%.
-```
-
-These correspond to:
-
-```math
-0,\qquad 2,\qquad 5,\qquad 8
-```
-
-compromised workers respectively.
-
-```bash
-python benchmarks/benchmark_suite.py \
-  --profile full \
-  --sections convergence
-```
-
-Run the complete benchmark suite:
+Run full suite:
 
 ```bash
 python benchmarks/benchmark_suite.py --profile full
 ```
 
-CI-sized smoke profile:
+Quick CI profile:
 
 ```bash
 python benchmarks/benchmark_suite.py --profile quick
@@ -1188,27 +1268,7 @@ benchmarks/results/
 
 Plots are exported at 300 DPI.
 
----
-
-# Empirical Result Tables
-
-Performance is hardware and toolchain dependent. This README intentionally does not invent machine-independent benchmark numbers. Run the benchmark suite and publish generated CSV values together with the machine, compiler, OpenMP, seed, and attack configuration used to obtain them.
-
-## Aggregation Latency and Speedup
-
-| Algorithm | Parameters $d$ | NumPy reference (ms) | C++20 native (ms) | Speedup |
-| --- | ---: | ---: | ---: | ---: |
-| Krum | $10^3$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Krum | $10^5$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Krum | $10^7$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Multi-Krum | $10^3$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Multi-Krum | $10^5$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Multi-Krum | $10^7$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Trimmed mean | $10^3$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Trimmed mean | $10^5$ | `aggregation.csv` | `aggregation.csv` | measured |
-| Trimmed mean | $10^7$ | `aggregation.csv` | `aggregation.csv` | measured |
-
-The benchmark defines speedup as:
+## Aggregation Speedup
 
 ```math
 \mathrm{speedup}
@@ -1219,9 +1279,7 @@ The benchmark defines speedup as:
 
 ## Memory Scaling
 
-The benchmark suite currently records latency and convergence metrics but does not emit measured peak RSS. Theoretical storage can still be stated.
-
-For $n$ float32 updates of dimension $d$, input storage is approximately:
+For $n$ float32 updates of dimension $d$:
 
 ```math
 M_{\mathrm{updates}}
@@ -1230,7 +1288,7 @@ M_{\mathrm{updates}}
 \quad \mathrm{bytes}.
 ```
 
-Krum additionally allocates an $n\times n$ `double` matrix:
+Krum's additional distance matrix is:
 
 ```math
 M_{\mathrm{distance}}
@@ -1239,30 +1297,24 @@ M_{\mathrm{distance}}
 \quad \mathrm{bytes}.
 ```
 
-For benchmark configuration $n=7$:
+## Convergence Attack Matrix
 
-| Parameters $d$ | Minimum float32 update payload | Krum distance matrix | Measured process peak RSS |
-| ---: | ---: | ---: | ---: |
-| $10^3$ | approximately 0.027 MiB | approximately 0.0004 MiB | not currently emitted |
-| $10^5$ | approximately 2.67 MiB | approximately 0.0004 MiB | not currently emitted |
-| $10^7$ | approximately 267.0 MiB | approximately 0.0004 MiB | not currently emitted |
+The full convergence profile uses 20 workers and exact malicious fractions:
 
-These are analytical storage estimates, not total Python process RSS. NumPy temporaries, allocator behavior, PyTorch runtime state, loaded libraries, and thread stacks increase observed resident memory.
+| Byzantine fraction | Malicious workers |
+| ---: | ---: |
+| 0% | 0 |
+| 10% | 2 |
+| 25% | 5 |
+| 40% | 8 |
 
-## Convergence Under Byzantine Participation
-
-| Byzantine fraction | Malicious clients / 20 | Final loss | Final accuracy | Mitigation metric |
-| ---: | ---: | ---: | ---: | ---: |
-| 0% | 0 | `convergence.csv` | `convergence.csv` | `convergence.csv` |
-| 10% | 2 | `convergence.csv` | `convergence.csv` | `convergence.csv` |
-| 25% | 5 | `convergence.csv` | `convergence.csv` | `convergence.csv` |
-| 40% | 8 | `convergence.csv` | `convergence.csv` | `convergence.csv` |
+Measured loss/accuracy values should be read from `benchmarks/results/convergence.csv`; this README does not fabricate machine-independent results.
 
 ---
 
-# Testing and System Verification
+# Testing and Verification
 
-## Python / C++
+Python/C++:
 
 ```bash
 pytest tests/test_cpp_aggregator.py -q
@@ -1270,87 +1322,67 @@ pytest tests/test_fl_engine.py -q
 pytest -q
 ```
 
-The test suite covers native/reference numerical equivalence, invalid update validation, Byzantine convergence scenarios, IID/Dirichlet partitioning, attack transformations, multi-round multiprocessing execution, latency simulation, process cleanup, and deadlock protection.
-
-## Go
-
-Generate protocol code first:
+Go:
 
 ```bash
 make proto
-```
-
-Then run:
-
-```bash
 go fmt ./...
 go vet ./...
 go test -v ./...
 ```
 
-## Full Cross-Language Verification
+Strict PQC tests:
 
-Linux/WSL:
+```bash
+go test -v ./pkg/security -run 'PQC|MLDSA'
+```
+
+The PQC tests verify:
+
+- required policy contains only ML-KEM/hybrid groups;
+- `off` contains classical-only groups;
+- a strict ML-KEM + ML-DSA mutual TLS handshake succeeds;
+- the negotiated connection state reports a PQC/hybrid group;
+- both peers authenticate ML-DSA leaf certificates;
+- a strict PQC server rejects a classical-only peer.
+
+Full cross-language verification:
 
 ```bash
 ./scripts/verify_system.sh
-```
-
-The script performs:
-
-```text
-protobuf generation
-→ Go format / vet / tests
-→ isolated Python environment
-→ Python dependency installation
-→ Python protobuf generation
-→ native C++20 extension build
-→ pytest
-→ development PKI generation
-→ real Go coordinator startup
-→ Python worker mTLS/JWT registration
-→ authenticated update submission
-→ coordinator shutdown
-→ three-round attacked FL simulation
-→ native robust aggregation
 ```
 
 ---
 
 # CI/CD
 
-`.github/workflows/ci.yml` defines three validation layers.
+`.github/workflows/ci.yml` validates:
 
 ### Go
 
 - Go 1.27.1
 - protobuf generation
-- `go fmt`
+- formatting
 - `go vet`
-- `go test -v ./...`
+- all Go tests, including PQC transport tests
 
 ### Python / C++20
 
 - Python 3.12
 - GCC/G++ 12
 - CMake
-- `pybind11`
-- editable native-extension compilation
-- Ruff linting
+- native extension build
+- Ruff
 - pytest coverage
-- native-module import verification
 
 ### Integration
 
 - Docker Compose build
 - zero-trust cluster startup
 - authenticated health check
-- benchmark smoke run
-- benchmark artifact upload
+- benchmark smoke profile
+- artifact upload
 - container log capture
-- stack cleanup
-
-The badge at the top of this README reflects the workflow state rather than a hard-coded success claim.
 
 ---
 
@@ -1359,39 +1391,34 @@ The badge at the top of this README reflects the workflow state rather than a ha
 ## Assumptions
 
 - TLS trust anchors remain uncompromised.
-- Worker private keys remain secret.
-- The coordinator private key remains secret.
-- The JWT signing private key remains secret.
+- Worker and coordinator private keys remain secret.
 - The coordinator host is trusted for the experiment.
-- The selected Byzantine bound $f$ is consistent with the aggregation configuration.
-- Client updates use the expected shape and numerical domain.
+- Strict PQC claims use `pqc-mode=require` rather than `prefer`.
+- Post-quantum identity claims use ML-DSA certificates with `pqc-require-identity`.
+- The selected Byzantine bound $f$ matches the aggregation configuration.
+
+## Important distinctions
+
+`prefer` means **PQC-capable with fallback**, not PQC-guaranteed.
+
+`require` means classical-only key exchange is rejected.
+
+`pqc-require-identity` means classical X.509 leaf identities are rejected.
+
+A correctly authenticated worker may still be malicious at the ML layer; robust aggregation remains necessary.
 
 ## Not Guaranteed
 
-The platform does not automatically protect against:
+The system does not automatically protect against:
 
-- a compromised coordinator;
-- stolen trusted certificates;
-- poisoned CA roots;
-- semantic backdoors that remain inside robust-statistics acceptance regions;
-- sybil identities provisioned by a trusted CA;
-- malicious training code running with valid credentials;
-- compromised endpoint data confidentiality;
-- Byzantine populations exceeding algorithm assumptions.
-
-### Krum Boundary
-
-The implementation rejects configurations violating:
-
-```math
-n \ge 2f+3.
-```
-
-This structural condition is necessary for the implementation but is not a universal proof that every attack is mitigated.
-
-### Trimmed-Mean Boundary
-
-Extreme-value rejection depends on the chosen $\beta$ and malicious population. Attackers whose values remain inside the retained central interval can still influence the aggregate.
+- compromised coordinators;
+- stolen trusted private keys;
+- malicious trusted CAs;
+- endpoint compromise;
+- semantic backdoors inside robust-statistics acceptance regions;
+- sybil identities legitimately issued by the CA;
+- Byzantine populations exceeding algorithm assumptions;
+- future cryptanalytic breaks in standardized PQC algorithms.
 
 ---
 
@@ -1400,31 +1427,30 @@ Extreme-value rejection depends on the chosen $\beta$ and malicious population. 
 Record at minimum:
 
 - Git commit SHA;
-- Python and PyTorch versions;
 - Go version;
+- Python/PyTorch versions;
 - compiler and CMake versions;
-- OpenMP enabled/disabled;
-- CPU model and thread count;
-- operating system;
-- dataset;
-- Dirichlet $\alpha$;
-- client count;
-- malicious fraction;
-- attack type and parameters;
+- CPU/thread count;
+- OpenMP state;
+- dataset and Dirichlet $\alpha$;
+- client and malicious counts;
+- attack configuration;
 - aggregation method and Byzantine bound;
-- optimizer and learning rate;
-- local epochs;
 - random seed;
-- federated round count;
+- federated rounds;
+- `ZTFL_PQC_MODE`;
+- negotiated TLS `CurveID` where measured;
+- certificate algorithm (`ed25519` or `mldsa65`);
+- `ZTFL_PQC_REQUIRE_IDENTITY`;
 - benchmark profile.
 
 Useful metadata commands:
 
 ```bash
 git rev-parse HEAD
+go version
 python --version
 python -c "import torch; print(torch.__version__)"
-go version
 cmake --version
 python -c "import zerotrust_fl_cpp as native; print('OpenMP:', native.openmp_enabled)"
 ```
@@ -1435,32 +1461,14 @@ python -c "import zerotrust_fl_cpp as native; print('OpenMP:', native.openmp_ena
 
 - Deny RPC access by default.
 - Treat authenticated workers as potentially malicious at the ML layer.
-- Validate every cross-language boundary.
+- Do not equate `prefer` with enforced PQC.
+- Verify the negotiated TLS group when strict PQC is required.
+- Keep certificate authentication and key-exchange migration separate and explicit.
 - Reject non-finite model updates before native aggregation.
 - Keep keys and tokens outside source control.
 - Preserve deterministic seeds where practical.
-- Compare native algorithms against correctness references.
-- Separate security policy from training logic.
-- Distinguish theoretical guarantees from empirical measurements.
-- Document implementation-specific differences from textbook notation.
-
----
-
-# Git Workflow
-
-For future README/documentation changes:
-
-```bash
-git checkout main
-git pull --ff-only origin main
-git checkout -b docs/readme-update
-
-git add README.md
-git commit -m "docs: update mathematical system documentation"
-git push -u origin docs/readme-update
-```
-
-For research result publication, keep source changes and measured benchmark artifacts in separately identifiable commits so the implementation-to-result relationship remains auditable.
+- Compare optimized native algorithms against correctness references.
+- Distinguish formal guarantees, implementation constraints, and empirical measurements.
 
 ---
 
@@ -1478,4 +1486,4 @@ Add an explicit `LICENSE` file before redistributing the project under a specifi
 
 ZeroTrust-FL-Sim is designed to make the complete secure FL experiment inspectable across the stack:
 
-**data heterogeneity → malicious local behavior → asynchronous execution → Byzantine aggregation → authenticated zero-trust transport → reproducible verification**.
+**data heterogeneity → malicious local behavior → asynchronous execution → Byzantine aggregation → hybrid post-quantum mTLS → zero-trust authorization → reproducible verification**.

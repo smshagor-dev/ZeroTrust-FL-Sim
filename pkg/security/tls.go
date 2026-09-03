@@ -33,6 +33,8 @@ type ServerTLSOptions struct {
 	TrustDomain        string
 	AllowedClientRoles []string
 	ClientSPKIPins     []string
+	PQCMode            PQCMode
+	RequirePQCIdentity bool
 }
 
 type ClientTLSOptions struct {
@@ -43,6 +45,8 @@ type ClientTLSOptions struct {
 	TrustDomain        string
 	ExpectedServerRole string
 	ServerSPKIPins     []string
+	PQCMode            PQCMode
+	RequirePQCIdentity bool
 }
 
 func ServerTransportCredentials(opts ServerTLSOptions) (credentials.TransportCredentials, error) {
@@ -68,10 +72,27 @@ func ServerTLSConfig(opts ServerTLSOptions) (*tls.Config, error) {
 	if len(opts.AllowedClientRoles) == 0 {
 		opts.AllowedClientRoles = []string{"edge-worker", "observer", "admin"}
 	}
+	pqcMode, err := normalizePQCMode(opts.PQCMode)
+	if err != nil {
+		return nil, err
+	}
+	curvePreferences, err := PQCCurvePreferences(pqcMode)
+	if err != nil {
+		return nil, err
+	}
 
 	certificate, err := tls.LoadX509KeyPair(opts.CertificateFile, opts.PrivateKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("load server certificate: %w", err)
+	}
+	if opts.RequirePQCIdentity {
+		leaf, err := certificateLeaf(certificate)
+		if err != nil {
+			return nil, err
+		}
+		if err := validatePQCIdentity(true, leaf, "server"); err != nil {
+			return nil, err
+		}
 	}
 	clientCAs, err := LoadCertificatePool(opts.ClientCAFile)
 	if err != nil {
@@ -79,15 +100,22 @@ func ServerTLSConfig(opts ServerTLSOptions) (*tls.Config, error) {
 	}
 
 	cfg := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		MaxVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{certificate},
-		ClientCAs:    clientCAs,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:       tls.VersionTLS13,
+		MaxVersion:       tls.VersionTLS13,
+		Certificates:     []tls.Certificate{certificate},
+		ClientCAs:        clientCAs,
+		ClientAuth:       tls.RequireAndVerifyClientCert,
+		CurvePreferences: curvePreferences,
 	}
 	cfg.VerifyConnection = func(state tls.ConnectionState) error {
+		if err := validatePQCConnection(pqcMode, state); err != nil {
+			return err
+		}
 		if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
 			return errors.New("client certificate was not verified")
+		}
+		if err := validatePQCIdentity(opts.RequirePQCIdentity, state.PeerCertificates[0], "client"); err != nil {
+			return err
 		}
 		identity, err := ClientIdentityFromCertificate(state.PeerCertificates[0], opts.TrustDomain)
 		if err != nil {
@@ -114,10 +142,27 @@ func ClientTLSConfig(opts ClientTLSOptions) (*tls.Config, error) {
 	if strings.TrimSpace(opts.ServerName) == "" {
 		return nil, errors.New("TLS server name is required")
 	}
+	pqcMode, err := normalizePQCMode(opts.PQCMode)
+	if err != nil {
+		return nil, err
+	}
+	curvePreferences, err := PQCCurvePreferences(pqcMode)
+	if err != nil {
+		return nil, err
+	}
 
 	certificate, err := tls.LoadX509KeyPair(opts.CertificateFile, opts.PrivateKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("load client certificate: %w", err)
+	}
+	if opts.RequirePQCIdentity {
+		leaf, err := certificateLeaf(certificate)
+		if err != nil {
+			return nil, err
+		}
+		if err := validatePQCIdentity(true, leaf, "client"); err != nil {
+			return nil, err
+		}
 	}
 	rootCAs, err := LoadCertificatePool(opts.RootCAFile)
 	if err != nil {
@@ -125,15 +170,22 @@ func ClientTLSConfig(opts ClientTLSOptions) (*tls.Config, error) {
 	}
 
 	cfg := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		MaxVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{certificate},
-		RootCAs:      rootCAs,
-		ServerName:   opts.ServerName,
+		MinVersion:       tls.VersionTLS13,
+		MaxVersion:       tls.VersionTLS13,
+		Certificates:     []tls.Certificate{certificate},
+		RootCAs:          rootCAs,
+		ServerName:       opts.ServerName,
+		CurvePreferences: curvePreferences,
 	}
 	cfg.VerifyConnection = func(state tls.ConnectionState) error {
+		if err := validatePQCConnection(pqcMode, state); err != nil {
+			return err
+		}
 		if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
 			return errors.New("server certificate was not verified")
+		}
+		if err := validatePQCIdentity(opts.RequirePQCIdentity, state.PeerCertificates[0], "server"); err != nil {
+			return err
 		}
 		if err := ValidateServerCertificate(
 			state.PeerCertificates[0],

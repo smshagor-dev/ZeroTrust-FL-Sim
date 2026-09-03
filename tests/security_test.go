@@ -53,17 +53,13 @@ func TestZeroTrustTransportAndAuthorization(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := &tls.Config{
+		clientConfig := &tls.Config{
 			MinVersion: tls.VersionTLS13,
 			MaxVersion: tls.VersionTLS13,
 			RootCAs:    roots,
 			ServerName: h.serverName,
 		}
-		conn, err := tls.Dial("tcp", h.address, cfg)
-		if err == nil {
-			_ = conn.Close()
-			t.Fatal("TLS handshake unexpectedly succeeded without a client certificate")
-		}
+		assertServerRejectsTLSClient(t, h.serverTLSConfig(t), clientConfig)
 	})
 
 	t.Run("client certificate from untrusted CA is rejected", func(t *testing.T) {
@@ -90,18 +86,14 @@ func TestZeroTrustTransportAndAuthorization(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := &tls.Config{
+		clientConfig := &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			MaxVersion:   tls.VersionTLS13,
 			RootCAs:      roots,
 			ServerName:   h.serverName,
 			Certificates: []tls.Certificate{cert},
 		}
-		conn, err := tls.Dial("tcp", h.address, cfg)
-		if err == nil {
-			_ = conn.Close()
-			t.Fatal("TLS handshake unexpectedly succeeded with a certificate from an untrusted CA")
-		}
+		assertServerRejectsTLSClient(t, h.serverTLSConfig(t), clientConfig)
 	})
 
 	t.Run("unregistered edge worker cannot submit update", func(t *testing.T) {
@@ -203,11 +195,19 @@ func TestZeroTrustTransportAndAuthorization(t *testing.T) {
 
 	t.Run("tampered token is unauthenticated", func(t *testing.T) {
 		token := h.readToken(t, "edge-worker-02")
-		if strings.HasSuffix(token, "A") {
-			token = token[:len(token)-1] + "B"
-		} else {
-			token = token[:len(token)-1] + "A"
+		parts := strings.Split(token, ".")
+		if len(parts) != 3 || len(parts[2]) == 0 {
+			t.Fatalf("unexpected JWT format")
 		}
+		signature := []byte(parts[2])
+		if signature[0] == 'A' {
+			signature[0] = 'B'
+		} else {
+			signature[0] = 'A'
+		}
+		parts[2] = string(signature)
+		token = strings.Join(parts, ".")
+
 		client := h.newClient(t, "edge-worker-02", token)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -313,6 +313,49 @@ func newSecurityHarness(t *testing.T) *securityHarness {
 		issuer:      issuer,
 		audience:    audience,
 		artifacts:   artifacts,
+	}
+}
+
+func (h *securityHarness) serverTLSConfig(t *testing.T) *tls.Config {
+	t.Helper()
+	config, err := ztsecurity.ServerTLSConfig(ztsecurity.ServerTLSOptions{
+		CertificateFile:    h.artifacts.ServerCertificateFile,
+		PrivateKeyFile:     h.artifacts.ServerPrivateKeyFile,
+		ClientCAFile:       h.artifacts.CACertificateFile,
+		TrustDomain:        h.trustDomain,
+		AllowedClientRoles: []string{"edge-worker", "observer", "admin"},
+	})
+	if err != nil {
+		t.Fatalf("ServerTLSConfig() error = %v", err)
+	}
+	return config
+}
+
+func assertServerRejectsTLSClient(t *testing.T, serverConfig, clientConfig *tls.Config) {
+	t.Helper()
+
+	serverRaw, clientRaw := net.Pipe()
+	defer serverRaw.Close()
+	defer clientRaw.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	if err := serverRaw.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientRaw.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+
+	serverConn := tls.Server(serverRaw, serverConfig)
+	clientConn := tls.Client(clientRaw, clientConfig)
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- serverConn.Handshake()
+	}()
+
+	_ = clientConn.Handshake()
+	if err := <-serverErrors; err == nil {
+		t.Fatal("server unexpectedly accepted an unauthorized client certificate state")
 	}
 }
 

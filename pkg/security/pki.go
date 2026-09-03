@@ -1,7 +1,9 @@
 package security
 
 import (
+	"crypto"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -19,19 +21,25 @@ import (
 
 const DefaultTrustDomain = "zerotrust-fl.local"
 
+const (
+	CertificateAlgorithmEd25519 = "ed25519"
+	CertificateAlgorithmMLDSA65 = "mldsa65"
+)
+
 type DevelopmentClient struct {
 	NodeID string
 	Role   string
 }
 
 type DevelopmentPKIConfig struct {
-	OutputDir   string
-	TrustDomain string
-	ServerName  string
-	Issuer      string
-	Audience    string
-	TokenTTL    time.Duration
-	Clients     []DevelopmentClient
+	OutputDir            string
+	TrustDomain          string
+	ServerName           string
+	Issuer               string
+	Audience             string
+	TokenTTL             time.Duration
+	Clients              []DevelopmentClient
+	CertificateAlgorithm string
 }
 
 type ClientArtifacts struct {
@@ -47,6 +55,7 @@ type DevelopmentPKIArtifacts struct {
 	ServerPrivateKeyFile     string
 	JWTSigningPrivateKeyFile string
 	JWTSigningPublicKeyFile  string
+	CertificateAlgorithm     string
 	Clients                  map[string]ClientArtifacts
 }
 
@@ -69,6 +78,11 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 	if cfg.TokenTTL <= 0 {
 		cfg.TokenTTL = 24 * time.Hour
 	}
+	certificateAlgorithm, err := normalizeCertificateAlgorithm(cfg.CertificateAlgorithm)
+	if err != nil {
+		return nil, err
+	}
+	cfg.CertificateAlgorithm = certificateAlgorithm
 	if len(cfg.Clients) == 0 {
 		cfg.Clients = []DevelopmentClient{
 			{NodeID: "edge-worker-01", Role: "edge-worker"},
@@ -87,7 +101,7 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 	}
 
 	now := time.Now().UTC()
-	caPublic, caPrivate, err := ed25519.GenerateKey(rand.Reader)
+	caPublic, caPrivate, err := generateCertificateKey(certificateAlgorithm)
 	if err != nil {
 		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
@@ -125,6 +139,7 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 		ServerPrivateKeyFile:     filepath.Join(cfg.OutputDir, "server.key"),
 		JWTSigningPrivateKeyFile: filepath.Join(cfg.OutputDir, "jwt_signing_private.pem"),
 		JWTSigningPublicKeyFile:  filepath.Join(cfg.OutputDir, "jwt_signing_public.pem"),
+		CertificateAlgorithm:     certificateAlgorithm,
 		Clients:                  make(map[string]ClientArtifacts, len(cfg.Clients)),
 	}
 
@@ -151,7 +166,7 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 	serverTemplate.DNSNames = uniqueStrings([]string{cfg.ServerName, "localhost"})
 	serverTemplate.IPAddresses = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
 	serverTemplate.URIs = []*url.URL{serverURI}
-	serverPublic, serverPrivate, err := ed25519.GenerateKey(rand.Reader)
+	serverPublic, serverPrivate, err := generateCertificateKey(certificateAlgorithm)
 	if err != nil {
 		return nil, fmt.Errorf("generate server key: %w", err)
 	}
@@ -200,7 +215,7 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 		}
 		clientTemplate.URIs = []*url.URL{clientURI}
 
-		clientPublic, clientPrivate, err := ed25519.GenerateKey(rand.Reader)
+		clientPublic, clientPrivate, err := generateCertificateKey(certificateAlgorithm)
 		if err != nil {
 			return nil, fmt.Errorf("generate client key for %s: %w", client.NodeID, err)
 		}
@@ -231,6 +246,38 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 	}
 
 	return artifacts, nil
+}
+
+func normalizeCertificateAlgorithm(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return CertificateAlgorithmEd25519, nil
+	}
+	switch normalized {
+	case CertificateAlgorithmEd25519, CertificateAlgorithmMLDSA65:
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("unsupported certificate algorithm %q; expected ed25519 or mldsa65", value)
+	}
+}
+
+func generateCertificateKey(algorithm string) (crypto.PublicKey, crypto.Signer, error) {
+	switch algorithm {
+	case CertificateAlgorithmEd25519:
+		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, nil, err
+		}
+		return publicKey, privateKey, nil
+	case CertificateAlgorithmMLDSA65:
+		privateKey, err := mldsa.GenerateKey(mldsa.MLDSA65())
+		if err != nil {
+			return nil, nil, err
+		}
+		return privateKey.Public(), privateKey, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported certificate algorithm %q", algorithm)
+	}
 }
 
 func leafCertificateTemplate(now time.Time, commonName, role string, usages []x509.ExtKeyUsage) (*x509.Certificate, error) {
@@ -264,7 +311,7 @@ func writeCertificate(path string, der []byte) error {
 	return nil
 }
 
-func writePrivateKey(path string, key ed25519.PrivateKey) error {
+func writePrivateKey(path string, key any) error {
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return fmt.Errorf("marshal private key: %w", err)
