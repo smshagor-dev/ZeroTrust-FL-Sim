@@ -72,12 +72,14 @@ services:
       ZTFL_MIN_UPDATES: ${ZTFL_MIN_UPDATES:-3}
       ZTFL_MAX_UPDATES_PER_MINUTE: ${ZTFL_MAX_UPDATES_PER_MINUTE:-12}
       ZTFL_AGGREGATION_METHOD: ${ZTFL_AGGREGATION_METHOD:-median}
+      ZTFL_STATE_FILE: /var/lib/zerotrust-fl/coordinator-state.json
       ZTFL_PQC_MODE: ${ZTFL_PQC_MODE:-prefer}
       ZTFL_PQC_REQUIRE_IDENTITY: ${ZTFL_PQC_REQUIRE_IDENTITY:-false}
     ports:
       - "127.0.0.1:50051:50051"
     volumes:
       - coordinator_creds:/certs:ro
+      - coordinator_state:/var/lib/zerotrust-fl
     networks:
       - control-plane
     healthcheck:
@@ -144,6 +146,7 @@ services:
 
 volumes:
   coordinator_creds:
+  coordinator_state:
   benign_worker_1_creds:
   benign_worker_2_creds:
   benign_worker_3_creds:

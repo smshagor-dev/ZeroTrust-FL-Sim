@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +121,51 @@ func (s *RegistrationStore) Refresh(identity PeerIdentity, registrationID string
 	s.entries[identity.NodeID] = entry
 	s.mu.Unlock()
 	return entry, nil
+}
+
+func (s *RegistrationStore) Snapshot() []Registration {
+	if s == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	s.mu.RLock()
+	entries := make([]Registration, 0, len(s.entries))
+	for _, entry := range s.entries {
+		if now.After(entry.ExpiresAt) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	s.mu.RUnlock()
+	sort.Slice(entries, func(i, j int) bool { return entries[i].NodeID < entries[j].NodeID })
+	return entries
+}
+
+func (s *RegistrationStore) RestoreSnapshot(entries []Registration) error {
+	if s == nil {
+		return errors.New("registration store is nil")
+	}
+	now := time.Now().UTC()
+	restored := make(map[string]Registration, len(entries))
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.NodeID) == "" || strings.TrimSpace(entry.Role) == "" || strings.TrimSpace(entry.CertificateFingerprint) == "" || strings.TrimSpace(entry.RegistrationID) == "" {
+			return errors.New("registration snapshot contains an incomplete identity binding")
+		}
+		if entry.ExpiresAt.IsZero() {
+			return fmt.Errorf("registration snapshot for %q has no expiry", entry.NodeID)
+		}
+		if _, exists := restored[entry.NodeID]; exists {
+			return fmt.Errorf("registration snapshot contains duplicate node %q", entry.NodeID)
+		}
+		if now.After(entry.ExpiresAt) {
+			continue
+		}
+		restored[entry.NodeID] = entry
+	}
+	s.mu.Lock()
+	s.entries = restored
+	s.mu.Unlock()
+	return nil
 }
 
 type Authorizer struct {
