@@ -10,8 +10,6 @@ import (
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -48,7 +46,9 @@ func (s *DurableService) RegisterNode(ctx context.Context, req *flv1.RegisterNod
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitOrRollback(ctx, before, "registration"); err != nil {
+	after := s.captureSnapshot()
+	events := []AuditEvent{registrationAuditEvent(req, response, after)}
+	if err := s.commitOrRollbackTransition(ctx, before, after, "registration", events); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -63,7 +63,9 @@ func (s *DurableService) Heartbeat(ctx context.Context, req *flv1.HeartbeatReque
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitOrRollback(ctx, before, "lease"); err != nil {
+	after := s.captureSnapshot()
+	events := []AuditEvent{heartbeatAuditEvent(req, response, after)}
+	if err := s.commitOrRollbackTransition(ctx, before, after, "lease", events); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -84,30 +86,24 @@ func (s *DurableService) SubmitLocalUpdate(ctx context.Context, req *flv1.Submit
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitOrRollback(ctx, before, "model-state"); err != nil {
+	after := s.captureSnapshot()
+	events := s.updateAuditEvents(req, response, before, after)
+	if err := s.commitOrRollbackTransition(ctx, before, after, "model-state", events); err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
 func (s *DurableService) commitOrRollback(ctx context.Context, before StateSnapshot, operation string) error {
-	if err := s.commitCurrentState(ctx); err == nil {
-		return nil
-	}
-
-	if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
-		return status.Errorf(codes.Internal, "durable %s commit failed and in-memory rollback failed: %v", operation, restoreErr)
-	}
-	if rollbackErr := s.store.Commit(context.Background(), before); rollbackErr != nil {
-		return status.Errorf(codes.Internal, "durable %s commit failed and persistent rollback failed: %v", operation, rollbackErr)
-	}
-	return status.Errorf(codes.Internal, "durable %s commit failed; previous state restored", operation)
+	return s.commitOrRollbackTransition(ctx, before, s.captureSnapshot(), operation, nil)
 }
 
 func (s *DurableService) recoverOrInitialize(ctx context.Context) error {
 	snapshot, err := s.store.Load(ctx)
 	if errors.Is(err, ErrStateNotFound) {
-		if err := s.commitCurrentState(ctx); err != nil {
+		current := s.captureSnapshot()
+		events := []AuditEvent{stateAuditEvent(AuditEventStateInitialized, current)}
+		if err := s.commitCurrentStateWithAudit(ctx, events); err != nil {
 			return fmt.Errorf("initialize durable coordinator state: %w", err)
 		}
 		return nil
@@ -118,7 +114,9 @@ func (s *DurableService) recoverOrInitialize(ctx context.Context) error {
 	if err := s.restoreSnapshot(snapshot); err != nil {
 		return fmt.Errorf("restore durable coordinator state: %w", err)
 	}
-	if err := s.commitCurrentState(ctx); err != nil {
+	recovered := s.captureSnapshot()
+	events := []AuditEvent{stateAuditEvent(AuditEventStateRecovered, recovered)}
+	if err := s.commitCurrentStateWithAudit(ctx, events); err != nil {
 		return fmt.Errorf("normalize recovered coordinator state: %w", err)
 	}
 	return nil
