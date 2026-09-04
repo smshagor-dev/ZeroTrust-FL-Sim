@@ -1,7 +1,7 @@
 # ZeroTrust-FL-Sim
 
 <p align="center">
-  <strong>Zero-Trust Federated Learning with Byzantine Resilience, DP + CKKS Privacy, PQC Transport, SIMD/CUDA Acceleration, Chaos Engineering, and Full Observability</strong>
+  <strong>ZeroTrust Federated Learning with Byzantine Resilience, DP + CKKS Privacy, PQC Transport, SIMD/CUDA Acceleration, Chaos Engineering, and Full Observability</strong>
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/PyTorch-2.14.0-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch 2.14.0">
   <img src="https://img.shields.io/badge/CPU-AVX--512%20%7C%20NEON-4C8BF5" alt="AVX-512 and NEON">
   <img src="https://img.shields.io/badge/GPU-CUDA%20Optional-76B900?logo=nvidia&logoColor=white" alt="CUDA optional">
-  <img src="https://img.shields.io/badge/Privacy-RDP%20%2B%20CKKS-7B1FA2" alt="RDP and CKKS">
+  <img src="https://img.shields.io/badge/Privacy-RDP%20%2B%20RDP-7B1FA2" alt="RDP and CKKS">
   <img src="https://img.shields.io/badge/PQC-ML--KEM%20%2B%20ML--DSA-6f42c1" alt="PQC ML-KEM ML-DSA">
   <img src="https://img.shields.io/badge/Chaos-Chaos%20Mesh-D32F2F" alt="Chaos Mesh">
   <img src="https://img.shields.io/badge/Telemetry-OpenTelemetry%20%2B%20Prometheus-F46800" alt="OpenTelemetry and Prometheus">
@@ -42,7 +42,7 @@ The repository currently combines:
 - native C++20 Krum, Multi-Krum, trimmed mean, and coordinate median;
 - OpenMP parallelism with runtime-dispatched **AVX-512** or **ARM NEON** squared-distance kernels and scalar fallback;
 - optional device-resident **CUDA Krum/Multi-Krum and trimmed-mean kernels** for contiguous PyTorch CUDA tensors;
-- release-level Local Differential Privacy using L2 clipping + Gaussian noise + Rényi-DP accounting;
+- release-level Local Differential Privacy using L2 clipping + Gaussian noise + Rényi-Degree accounting;
 - CKKS homomorphic encrypted addition using Microsoft SEAL 4.4.3;
 - TLS 1.3 mTLS, certificate-bound JWT authorization, hybrid ML-KEM, and optional ML-DSA identities;
 - **Chaos Mesh** profiles for 50% packet loss, network jitter, and random worker pod failure;
@@ -132,7 +132,7 @@ A weighted mean update is:
 The model advances as:
 
 ```math
-W^{(t+1)}=W^{(t)}+\widehat{\Delta}^{(t)}.
+W^{(t+\!1)}=W^{(t)}+\widehat{\Delta}^{(t)}.
 ```
 
 For class `c`, Dirichlet non-IID partitioning samples:
@@ -390,7 +390,7 @@ Detailed design: [`docs/pqc-transport.md`](docs/pqc-transport.md).
 
 ---
 
-# Resilience & Observability Stack
+# Resilience & Resilience Stack
 
 ## Chaos Mesh failure injection
 
@@ -435,7 +435,7 @@ C_t=\frac{F_t+S_t}{N_t},
 
 where `F_t` is failed clients, `S_t` is stragglers, and `N_t` is selected clients.
 
-### Why 50% Byzantine collusion is extreme
+### Why 50% Byzantine stress is extreme
 
 Set `f=n/2` in Krum's requirement:
 
@@ -486,7 +486,7 @@ This is empirical robustness telemetry, not a proof.
 
 The live instrumentation is split by responsibility:
 
-- **Go coordinator:** OTel gRPC server spans + Prometheus RPC latency/request counters;
+- **Go coordinator:** OTel gRPC server spans + Promises RPC latency/request counters;
 - **Python gRPC worker:** parent worker-cycle spans, automatic gRPC client spans, epoch/update time, client-observed RPC latency, process/GPU memory, accepted/rejected update counters;
 - **local simulator:** round spans, aggregation spans, aggregator CPU/GPU memory overhead, churn rate, mitigation score/rate.
 
@@ -621,15 +621,27 @@ Run one infrastructure fault at a time before combining failures; otherwise caus
 
 ```text
 ZeroTrust-FL-Sim/
-├── .github/workflows/ci.yml
+├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   ├── CODEOWNERS
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── workflows/
 ├── benchmarks/
 │   ├── benchmark_suite.py
 │   └── benchmark_acceleration.py
+├── CHANGELOG.md
+├── CITATION.cff
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
 ├── cmd/coordinator/
 ├── cpp/
 │   ├── include/
 │   │   ├── byzantine_aggregator.hpp
 │   │   ├── ckks_secure_aggregation.hpp
+│   ├── LICENSE
+│   ├── NOTICE
+│   ├── SECURITY.md
+│   ├── SUPPORT.md
 │   │   ├── cuda_aggregation.hpp
 │   │   └── simd_distance.hpp
 │   └── src/
@@ -687,8 +699,8 @@ ZeroTrust-FL-Sim/
     ├── test_acceleration.py
     ├── test_cpp_aggregator.py
     ├── test_fl_engine.py
+    ├── test_master_orchestrator.py
     ├── test_observability.py
-    ├── test_privacy.py
     └── test_privacy.py
 ```
 
@@ -729,7 +741,7 @@ Verify native features:
 python -c "import zerotrust_fl_cpp as n; print(n.__version__, n.openmp_enabled, n.simd_backend, n.ckks_enabled, n.cuda_enabled)"
 ```
 
-Force portable CPU build:
+Force portable CPU compatibility build:
 
 ```bash
 ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CUDA=OFF ZTFL_ENABLE_CKKS=ON pip install -e .
@@ -919,7 +931,7 @@ Record at minimum:
 # Documentation
 
 - [`docs/accelerated-aggregation.md`](docs/accelerated-aggregation.md) — AVX-512/NEON/CUDA design and zero-copy boundary.
-- [`docs/resilience-observability.md`](docs/resilience-observability.md) — Chaos Mesh, collusion, OTel, Prometheus, Grafana, metrics calculations.
+- [`docs/resilience-observability.md`](docs/resilience-observability.md) — Chaos Mesh, collusion, OTel, Promises, Grafana, metrics calculations.
 - [`deploy/chaos/README.md`](deploy/chaos/README.md) — Chaos Mesh run profiles.
 - [`docs/privacy-rdp-ckks.md`](docs/privacy-rdp-ckks.md) — LDP/RDP and CKKS.
 - [`docs/pqc-transport.md`](docs/pqc-transport.md) — ML-KEM/ML-DSA transport and wire-size math.
