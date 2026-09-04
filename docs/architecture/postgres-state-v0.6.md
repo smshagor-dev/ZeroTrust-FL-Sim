@@ -2,43 +2,49 @@
 
 This document describes the PostgreSQL metadata slice of the v0.6 durability roadmap. It extends the filesystem `StateStore` foundation without changing coordinator RPC validation, aggregation, replay protection, or recovery semantics.
 
-This slice is not the complete v0.6 storage architecture. In particular, model artifacts are still stored with the coordinator snapshot and have not yet been moved to the planned S3-compatible artifact store.
+Non-empty global-model payloads can now be separated into the S3-compatible artifact layer documented in [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md). PostgreSQL remains the authoritative metadata/state-publication store. This still does not provide multi-coordinator high availability or complete v0.6 readiness.
 
 ## Backend selection
 
-The coordinator supports three startup modes:
+The coordinator supports these startup modes:
 
 - volatile: both `ZTFL_STATE_FILE` and `ZTFL_POSTGRES_DSN` are empty;
-- filesystem: `ZTFL_STATE_FILE` is set; and
-- PostgreSQL: `ZTFL_POSTGRES_DSN` is set.
+- filesystem: `ZTFL_STATE_FILE` is set;
+- PostgreSQL inline: `ZTFL_POSTGRES_DSN` is set without S3 configuration; and
+- PostgreSQL + S3-compatible artifacts: PostgreSQL is set together with a complete S3 configuration.
 
-Filesystem and PostgreSQL configuration are mutually exclusive. Supplying both causes startup to fail before the coordinator begins serving requests.
+Filesystem and PostgreSQL configuration are mutually exclusive. S3 model artifacts require PostgreSQL and cannot be enabled with volatile or filesystem state. Partial S3 configuration causes startup to fail before serving requests.
 
-PostgreSQL initialization is also fail-closed: the coordinator must connect, apply/validate migrations, and recover or initialize the durable snapshot before the gRPC service starts.
+PostgreSQL initialization is fail-closed: the coordinator must connect, apply/validate migrations, and recover or initialize the durable snapshot before the gRPC service starts.
 
 ## Storage model
 
-The PostgreSQL backend preserves the existing `StateStore` whole-snapshot contract. A single `ztfl_coordinator_state` row contains the recovery-critical state:
+The PostgreSQL backend preserves the existing `StateStore` whole-snapshot contract. A singleton `ztfl_coordinator_state` row contains recovery-critical state:
 
 - state schema version;
 - coordinator policy;
 - serialized global-model protobuf;
 - pending worker updates;
 - active registration leases;
-- replay nonces; and
-- rate-limit windows.
+- replay nonces;
+- rate-limit windows; and
+- optional model-artifact bucket/key/digest/size fields.
 
-JSONB is used for structured coordinator metadata and `BYTEA` for the serialized global-model protobuf. Keeping one singleton row means one committed PostgreSQL transaction represents one coordinator state transition. Readers observe either the previous committed snapshot or the new committed snapshot, never a partially updated set of recovery fields.
+JSONB is used for structured coordinator metadata and `BYTEA` for protobuf/digest fields. One committed PostgreSQL transaction represents one coordinator state transition. Readers observe either the previous committed snapshot or the new committed snapshot, never a partially updated set of recovery fields.
 
-The model protobuf in PostgreSQL is an intentional transitional design. The v0.6 target still requires an S3-compatible artifact store so large model payloads can be separated from transactional metadata while preserving digest/version references.
+Without an artifact backend, PostgreSQL remains backward-compatible with inline `weights_payload`. With an artifact backend, the stored protobuf retains model version/round/format/SHA metadata but removes `weights_payload`; the payload is reconstructed from the validated content-addressed object on load.
 
 ## Commit and recovery semantics
 
 Before every PostgreSQL commit, the same `StateSnapshot` validation used by the filesystem backend runs. Invalid policy, malformed model metadata, digest mismatch, non-finite pending values, duplicate registrations/nonces, or impossible quorum state are rejected before database mutation.
 
-A commit uses a PostgreSQL `SERIALIZABLE` transaction and an upsert of the singleton state row. The durable service acknowledges a mutating RPC only after the store commit succeeds. If persistence fails, the existing durable-service rollback path restores the previous in-memory snapshot and returns an internal error.
+A metadata commit uses a PostgreSQL `SERIALIZABLE` transaction and an upsert of the singleton state row. The durable service acknowledges a mutating RPC only after the store commit succeeds. If persistence fails, the existing durable-service rollback path restores the previous in-memory snapshot and returns an internal error.
+
+In artifact mode, the content-addressed object is ensured before the PostgreSQL transaction writes its reference. PostgreSQL is still the publication boundary. A database failure can leave an unreferenced immutable object, but cannot publish a state row that was only partially committed.
 
 On startup, a missing singleton row maps to `ErrStateNotFound`, so the durable service initializes and commits the bootstrap model. Existing state is strictly decoded, protobuf-decoded, validated, policy-checked, normalized, and recommitted through the same recovery path used by the filesystem backend.
+
+Legacy inline rows remain readable after the artifact-reference migration. When an artifact backend is configured, the recovery normalization commit externalizes the legacy non-empty payload automatically. Conversely, an artifact-backed row cannot be loaded without its configured artifact store.
 
 ## Migrations
 
@@ -49,6 +55,11 @@ pkg/coordinator/migrations/
 ```
 
 The binary embeds those migrations and maintains `ztfl_schema_migrations` in PostgreSQL. Migration execution uses a transaction-scoped advisory lock so simultaneous coordinator startups do not race schema changes.
+
+Current migrations include:
+
+- `001_coordinator_state.sql`: durable singleton state table; and
+- `002_model_artifact_reference.sql`: nullable, all-or-none model artifact reference columns with digest/size constraints.
 
 Startup fails if the database contains:
 
@@ -61,7 +72,7 @@ Schema migration and coordinator state schema are separate concepts. `ztfl_schem
 
 ## Docker reference overlay
 
-`docker-compose.postgres.yml` adds a PostgreSQL 18.6 service on the existing internal control-plane network and switches the coordinator from `ZTFL_STATE_FILE` to `ZTFL_POSTGRES_DSN`.
+`docker-compose.postgres.yml` adds PostgreSQL on the existing internal control-plane network and switches the coordinator from `ZTFL_STATE_FILE` to `ZTFL_POSTGRES_DSN`.
 
 The overlay intentionally requires the operator to provide database credentials/DSN instead of shipping a production password. PostgreSQL is not published on a host port by the overlay.
 
@@ -74,7 +85,9 @@ ZTFL_POSTGRES_PASSWORD=<local-secret>
 ZTFL_POSTGRES_DSN=postgres://ztfl:<url-encoded-local-secret>@postgres:5432/zerotrust_fl?sslmode=disable
 ```
 
-Then start the reference stack with both compose files. `sslmode=disable` is appropriate only for the isolated local Docker network used by this reference overlay. Multi-host or production deployments must use authenticated PostgreSQL TLS and externally managed credentials appropriate to that environment.
+`sslmode=disable` is appropriate only for an isolated local Docker network. Multi-host or production deployments must use authenticated PostgreSQL TLS and externally managed credentials appropriate to that environment.
+
+The S3-compatible artifact path is configured separately. Plain HTTP object-store access is rejected unless an explicit local/test opt-in is enabled. Production deployments should use HTTPS and externally managed object-store credentials.
 
 ## Backup and restore
 
@@ -92,33 +105,39 @@ Restore into a compatible PostgreSQL database while the coordinator is stopped o
 pg_restore --clean --if-exists --no-owner --no-acl --dbname="$ZTFL_POSTGRES_DSN" zerotrust-fl-state.dump
 ```
 
-After restore, start a coordinator binary that contains every migration recorded in the restored `ztfl_schema_migrations` table and uses the same recovery-critical coordinator policy. Startup validation will reject unsupported migration/state versions or policy drift.
+After restore, start a coordinator binary that contains every migration recorded in `ztfl_schema_migrations` and uses the same recovery-critical coordinator policy. Startup validation rejects unsupported migration/state versions or policy drift.
 
-For production operations, backup encryption, retention, access control, point-in-time recovery, replica strategy, and periodic restore drills remain operator responsibilities until a later roadmap slice provides automated tooling.
+For artifact-backed rows, the database backup must be paired with an object-store backup that contains every referenced model object. Restore referenced objects before starting the coordinator. Detailed ordering and integrity requirements are in [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md).
+
+Backup encryption, retention, point-in-time recovery, replica strategy, object versioning, and periodic restore drills remain operator responsibilities until later roadmap work automates them.
 
 ## CI coverage
 
-The CI workflow runs PostgreSQL as an isolated service and verifies:
+The durable-state CI workflow runs PostgreSQL plus a pinned S3-compatible local fixture and verifies:
 
-- automatic migration application;
+- automatic database migration application;
 - missing-state handling;
-- snapshot commit/load round-trip;
+- inline snapshot commit/load round-trip;
 - overwrite semantics;
 - pool close/reconnect recovery;
-- rejection of invalid snapshots;
-- fail-closed handling of unsupported state schema versions; and
+- legacy inline model migration to object storage;
+- metadata-only PostgreSQL model storage after externalization;
+- artifact-backed reconnect recovery;
+- rejection when the artifact backend is missing;
+- rejection of corrupted object bytes/digest mismatch;
+- rejection of invalid snapshots and unsupported state schema versions; and
 - rejection of unknown future database migrations.
 
-The existing Docker integration job continues to exercise filesystem durability, coordinator restart recovery, worker recovery, PKI stability, and benchmark smoke tests. It also validates that the PostgreSQL compose overlay resolves correctly.
+The existing Docker integration job continues to exercise filesystem durability, coordinator restart recovery, worker recovery, PKI stability, and benchmark smoke tests. It also validates the PostgreSQL compose overlay.
 
 ## Remaining v0.6 work
 
-This slice does not claim full v0.6 completion. Remaining gates include:
+The PostgreSQL and S3-compatible artifact slices do not claim full v0.6 completion. Remaining gates include:
 
-- S3-compatible immutable model artifact storage with transactional metadata references;
 - durable audit event export;
 - explicit credential rotation and revocation lifecycle persistence;
-- stronger automated backup/restore validation; and
+- stronger automated backup/restore validation;
+- automatic artifact lifecycle/garbage collection if it becomes a supported operational feature; and
 - optional distributed lease/rate-limit state and any future multi-coordinator fencing design.
 
 No high-availability or consensus guarantee is provided by this PostgreSQL backend. The durable coordinator remains a single-writer reference service.

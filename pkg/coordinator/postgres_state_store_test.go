@@ -1,17 +1,28 @@
 package coordinator
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/minio/minio-go/v7"
+	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	"google.golang.org/protobuf/proto"
 )
 
-const postgresTestDSNEnv = "ZTFL_TEST_POSTGRES_DSN"
+const (
+	postgresTestDSNEnv       = "ZTFL_TEST_POSTGRES_DSN"
+	s3TestEndpointEnv        = "ZTFL_TEST_S3_ENDPOINT"
+	s3TestBucketEnv          = "ZTFL_TEST_S3_BUCKET"
+	s3TestAccessKeyIDEnv     = "ZTFL_TEST_S3_ACCESS_KEY_ID"
+	s3TestSecretAccessKeyEnv = "ZTFL_TEST_S3_SECRET_ACCESS_KEY"
+)
 
 func TestPostgresStateStoreRejectsEmptyDSN(t *testing.T) {
 	if _, err := NewPostgresStateStore(context.Background(), "   "); err == nil {
@@ -39,9 +50,9 @@ func TestPostgresStateStoreRoundTripMigrationAndReconnect(t *testing.T) {
 		store.Close()
 		t.Fatalf("count PostgreSQL migrations: %v", err)
 	}
-	if migrationCount != 1 {
+	if migrationCount != 2 {
 		store.Close()
-		t.Fatalf("migration count = %d, want 1", migrationCount)
+		t.Fatalf("migration count = %d, want 2", migrationCount)
 	}
 
 	snapshot := testStateSnapshot(t)
@@ -91,6 +102,130 @@ func TestPostgresStateStoreRoundTripMigrationAndReconnect(t *testing.T) {
 	}
 }
 
+func TestPostgresStateStoreExternalizesLegacyInlineModelToS3(t *testing.T) {
+	dsn := postgresTestDSN(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	resetPostgresStateTables(t, ctx, dsn)
+
+	snapshot := testStateSnapshot(t)
+	inlineStore, err := NewPostgresStateStore(ctx, dsn)
+	if err != nil {
+		t.Fatalf("create inline PostgreSQL state store: %v", err)
+	}
+	if err := inlineStore.Commit(ctx, snapshot); err != nil {
+		inlineStore.Close()
+		t.Fatalf("seed legacy inline PostgreSQL state: %v", err)
+	}
+	inlineStore.Close()
+
+	artifacts := s3TestArtifactStore(t, ctx)
+	artifactStore, err := NewPostgresStateStoreWithArtifacts(ctx, dsn, artifacts)
+	if err != nil {
+		t.Fatalf("create PostgreSQL state store with artifacts: %v", err)
+	}
+
+	legacyLoaded, err := artifactStore.Load(ctx)
+	if err != nil {
+		artifactStore.Close()
+		t.Fatalf("load legacy inline PostgreSQL state with artifact backend: %v", err)
+	}
+	assertPostgresSnapshotEquivalent(t, legacyLoaded, snapshot)
+
+	if err := artifactStore.Commit(ctx, legacyLoaded); err != nil {
+		artifactStore.Close()
+		t.Fatalf("externalize legacy inline model: %v", err)
+	}
+
+	var (
+		storedModelBytes []byte
+		artifactBucket   pgtype.Text
+		artifactKey      pgtype.Text
+		artifactDigest   []byte
+		artifactSize     pgtype.Int8
+	)
+	if err := artifactStore.pool.QueryRow(ctx, `
+		SELECT model_proto, model_artifact_bucket, model_artifact_key,
+		       model_artifact_sha256, model_artifact_size_bytes
+		FROM ztfl_coordinator_state
+		WHERE singleton_id = 1
+	`).Scan(&storedModelBytes, &artifactBucket, &artifactKey, &artifactDigest, &artifactSize); err != nil {
+		artifactStore.Close()
+		t.Fatalf("inspect artifact-backed PostgreSQL state: %v", err)
+	}
+	storedModel := &flv1.GlobalModel{}
+	if err := proto.Unmarshal(storedModelBytes, storedModel); err != nil {
+		artifactStore.Close()
+		t.Fatalf("decode metadata-only PostgreSQL model: %v", err)
+	}
+	if len(storedModel.GetWeightsPayload()) != 0 {
+		artifactStore.Close()
+		t.Fatalf("PostgreSQL model still contains %d inline payload bytes after externalization", len(storedModel.GetWeightsPayload()))
+	}
+	if !bytes.Equal(storedModel.GetSha256(), snapshot.Model.GetSha256()) {
+		artifactStore.Close()
+		t.Fatal("metadata-only PostgreSQL model lost the model digest")
+	}
+	if !artifactBucket.Valid || !artifactKey.Valid || len(artifactDigest) != 32 || !artifactSize.Valid {
+		artifactStore.Close()
+		t.Fatal("PostgreSQL state is missing a complete model artifact reference")
+	}
+	if artifactSize.Int64 != int64(len(snapshot.Model.GetWeightsPayload())) {
+		artifactStore.Close()
+		t.Fatalf("artifact size = %d, want %d", artifactSize.Int64, len(snapshot.Model.GetWeightsPayload()))
+	}
+
+	loaded, err := artifactStore.Load(ctx)
+	if err != nil {
+		artifactStore.Close()
+		t.Fatalf("load artifact-backed PostgreSQL state: %v", err)
+	}
+	assertPostgresSnapshotEquivalent(t, loaded, snapshot)
+	artifactStore.Close()
+
+	reopened, err := NewPostgresStateStoreWithArtifacts(ctx, dsn, artifacts)
+	if err != nil {
+		t.Fatalf("reopen PostgreSQL artifact state store: %v", err)
+	}
+	recovered, err := reopened.Load(ctx)
+	if err != nil {
+		reopened.Close()
+		t.Fatalf("recover artifact-backed PostgreSQL state: %v", err)
+	}
+	assertPostgresSnapshotEquivalent(t, recovered, snapshot)
+	reopened.Close()
+
+	withoutArtifacts, err := NewPostgresStateStore(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open PostgreSQL state store without artifacts: %v", err)
+	}
+	if _, err := withoutArtifacts.Load(ctx); err == nil {
+		withoutArtifacts.Close()
+		t.Fatal("artifact-backed PostgreSQL state loaded without an artifact backend")
+	}
+	withoutArtifacts.Close()
+
+	badPayload := bytes.Repeat([]byte{0xA5}, int(artifactSize.Int64))
+	if _, err := artifacts.client.PutObject(
+		ctx,
+		artifactBucket.String,
+		artifactKey.String,
+		bytes.NewReader(badPayload),
+		int64(len(badPayload)),
+		minio.PutObjectOptions{ContentType: networkWeightsFormat},
+	); err != nil {
+		t.Fatalf("corrupt model artifact fixture: %v", err)
+	}
+	corruptStore, err := NewPostgresStateStoreWithArtifacts(ctx, dsn, artifacts)
+	if err != nil {
+		t.Fatalf("reopen PostgreSQL state store for corruption check: %v", err)
+	}
+	defer corruptStore.Close()
+	if _, err := corruptStore.Load(ctx); err == nil {
+		t.Fatal("corrupted model artifact was accepted")
+	}
+}
+
 func TestPostgresStateStoreRejectsUnknownDatabaseMigration(t *testing.T) {
 	dsn := postgresTestDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -128,6 +263,40 @@ func postgresTestDSN(t *testing.T) string {
 		t.Skipf("%s is not configured", postgresTestDSNEnv)
 	}
 	return dsn
+}
+
+func s3TestArtifactStore(t *testing.T, ctx context.Context) *S3ModelArtifactStore {
+	t.Helper()
+	endpoint := os.Getenv(s3TestEndpointEnv)
+	bucket := os.Getenv(s3TestBucketEnv)
+	accessKey := os.Getenv(s3TestAccessKeyIDEnv)
+	secretKey := os.Getenv(s3TestSecretAccessKeyEnv)
+	if endpoint == "" || bucket == "" || accessKey == "" || secretKey == "" {
+		t.Skipf("S3 integration requires %s, %s, %s and %s", s3TestEndpointEnv, s3TestBucketEnv, s3TestAccessKeyIDEnv, s3TestSecretAccessKeyEnv)
+	}
+	store, err := NewS3ModelArtifactStore(S3ArtifactStoreConfig{
+		EndpointURL:       endpoint,
+		Bucket:            bucket,
+		Prefix:            fmt.Sprintf("tests/%d", time.Now().UTC().UnixNano()),
+		Region:            "us-east-1",
+		AccessKeyID:       accessKey,
+		SecretAccessKey:   secretKey,
+		AllowInsecureHTTP: true,
+		ForcePathStyle:    true,
+	})
+	if err != nil {
+		t.Fatalf("create S3 test artifact store: %v", err)
+	}
+	exists, err := store.client.BucketExists(ctx, bucket)
+	if err != nil {
+		t.Fatalf("check S3 test bucket: %v", err)
+	}
+	if !exists {
+		if err := store.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{Region: "us-east-1"}); err != nil {
+			t.Fatalf("create S3 test bucket: %v", err)
+		}
+	}
+	return store
 }
 
 func resetPostgresStateTables(t *testing.T, ctx context.Context, dsn string) {

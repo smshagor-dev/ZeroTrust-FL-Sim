@@ -38,6 +38,12 @@ func main() {
 		aggregationMethod   = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
 		stateFile           = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; mutually exclusive with PostgreSQL")
 		postgresDSN         = flag.String("postgres-dsn", envString("ZTFL_POSTGRES_DSN", ""), "PostgreSQL DSN for durable coordinator state; mutually exclusive with state-file")
+		s3Endpoint          = flag.String("s3-endpoint", envString("ZTFL_S3_ENDPOINT", ""), "S3-compatible endpoint URL for model artifacts; requires PostgreSQL")
+		s3Bucket            = flag.String("s3-bucket", envString("ZTFL_S3_BUCKET", ""), "S3-compatible bucket for model artifacts; requires PostgreSQL")
+		s3Prefix            = flag.String("s3-prefix", envString("ZTFL_S3_PREFIX", "models"), "canonical relative S3 object prefix for model artifacts")
+		s3Region            = flag.String("s3-region", envString("ZTFL_S3_REGION", "us-east-1"), "S3 region")
+		s3AllowInsecureHTTP = flag.Bool("s3-allow-insecure-http", envBool("ZTFL_S3_ALLOW_INSECURE_HTTP", false), "allow plaintext HTTP only for an explicitly trusted local/test S3 endpoint")
+		s3ForcePathStyle    = flag.Bool("s3-force-path-style", envBool("ZTFL_S3_FORCE_PATH_STYLE", false), "force path-style S3 bucket addressing for compatible local/test stores")
 		pqcModeValue        = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
 		requirePQCIdentity  = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
 		metricsAddress      = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
@@ -57,6 +63,19 @@ func main() {
 	}
 	if *stateFile != "" && *postgresDSN != "" {
 		fmt.Fprintln(os.Stderr, "state-file and postgres-dsn are mutually exclusive")
+		os.Exit(2)
+	}
+
+	s3AccessKeyID := envString("ZTFL_S3_ACCESS_KEY_ID", os.Getenv("AWS_ACCESS_KEY_ID"))
+	s3SecretAccessKey := envString("ZTFL_S3_SECRET_ACCESS_KEY", os.Getenv("AWS_SECRET_ACCESS_KEY"))
+	s3SessionToken := envString("ZTFL_S3_SESSION_TOKEN", os.Getenv("AWS_SESSION_TOKEN"))
+	s3Configured := *s3Endpoint != "" || *s3Bucket != ""
+	if s3Configured && *postgresDSN == "" {
+		fmt.Fprintln(os.Stderr, "S3 model artifacts require postgres-dsn")
+		os.Exit(2)
+	}
+	if s3Configured && (*s3Endpoint == "" || *s3Bucket == "" || s3AccessKeyID == "" || s3SecretAccessKey == "") {
+		fmt.Fprintln(os.Stderr, "S3 model artifacts require endpoint, bucket, access key ID, and secret access key")
 		os.Exit(2)
 	}
 
@@ -120,15 +139,38 @@ func main() {
 	switch {
 	case *postgresDSN != "":
 		storeContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		stateStore, storeErr := coordinator.NewPostgresStateStore(storeContext, *postgresDSN)
+		var stateStore *coordinator.PostgresStateStore
+		var storeErr error
+		if s3Configured {
+			artifactStore, artifactErr := coordinator.NewS3ModelArtifactStore(coordinator.S3ArtifactStoreConfig{
+				EndpointURL:       *s3Endpoint,
+				Bucket:            *s3Bucket,
+				Prefix:            *s3Prefix,
+				Region:            *s3Region,
+				AccessKeyID:       s3AccessKeyID,
+				SecretAccessKey:   s3SecretAccessKey,
+				SessionToken:      s3SessionToken,
+				AllowInsecureHTTP: *s3AllowInsecureHTTP,
+				ForcePathStyle:    *s3ForcePathStyle,
+			})
+			if artifactErr != nil {
+				cancel()
+				logger.Error("configure S3-compatible model artifact store", "error", artifactErr)
+				os.Exit(1)
+			}
+			stateStore, storeErr = coordinator.NewPostgresStateStoreWithArtifacts(storeContext, *postgresDSN, artifactStore)
+			stateBackend = "postgres+s3"
+		} else {
+			stateStore, storeErr = coordinator.NewPostgresStateStore(storeContext, *postgresDSN)
+			stateBackend = "postgres"
+		}
 		cancel()
 		if storeErr != nil {
-			logger.Error("configure PostgreSQL coordinator state store", "error", storeErr)
+			logger.Error("configure PostgreSQL coordinator state store", "state_backend", stateBackend, "error", storeErr)
 			os.Exit(1)
 		}
 		defer stateStore.Close()
 		service, err = coordinator.NewDurableService(registry, serviceConfig, stateStore)
-		stateBackend = "postgres"
 	case *stateFile != "":
 		stateStore, storeErr := coordinator.NewFileStateStore(*stateFile)
 		if storeErr != nil {

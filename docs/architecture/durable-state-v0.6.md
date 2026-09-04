@@ -1,6 +1,6 @@
 # Durable coordinator state foundation
 
-This document describes the first durable-state slice for the v0.6 roadmap: the reference filesystem implementation and restart-recovery contract. The PostgreSQL metadata backend and database-migration layer are documented separately in [`postgres-state-v0.6.md`](postgres-state-v0.6.md). Neither backend provides multi-coordinator high availability.
+This document describes the durable-state recovery contract established for the v0.6 roadmap. The reference filesystem backend is described here, the PostgreSQL metadata backend and migration layer are documented in [`postgres-state-v0.6.md`](postgres-state-v0.6.md), and S3-compatible global-model separation is documented in [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md). None of these slices provides multi-coordinator high availability.
 
 ## What is persisted
 
@@ -14,6 +14,8 @@ When `ZTFL_STATE_FILE` or `--state-file` is configured, the coordinator persists
 - recovery-critical coordinator policy: registration lease duration, maximum update size, quorum, update-rate limit, and aggregation method.
 
 The filesystem backend is capped at 256 MiB per snapshot. A state file is treated as sensitive because it contains worker registration IDs and pending model updates.
+
+In PostgreSQL+S3 mode, recovery metadata is committed in PostgreSQL while non-empty global-model payload bytes are stored as content-addressed objects. PostgreSQL remains the state-publication authority and the loaded object is verified before the normal snapshot validator runs.
 
 ## Commit semantics
 
@@ -33,6 +35,8 @@ If persistence fails after a successful mutating operation, the service restores
 
 Because the temporary file is created in the same directory as the destination, the rename stays on the same filesystem. Operators must place the state file on a filesystem that provides the expected atomic-rename and durability semantics.
 
+For PostgreSQL+S3 mode, the content-addressed object is ensured before the PostgreSQL transaction publishes its reference. A failed PostgreSQL commit may therefore leave an unreferenced object, but it cannot publish a partially committed coordinator state. See [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md).
+
 ## Startup and recovery
 
 On startup with durable mode enabled:
@@ -46,9 +50,11 @@ On startup with durable mode enabled:
 
 Recovery-critical policy must exactly match the runtime configuration. For example, changing `ZTFL_MIN_UPDATES` or the aggregation method while reusing existing durable state is rejected. This prevents a partially collected round from being reinterpreted under different trust or quorum assumptions.
 
+Artifact-backed PostgreSQL state additionally requires the configured object store to return the exact referenced object length and SHA-256. Missing/corrupt objects or a missing artifact backend fail startup rather than producing an empty or silently different model.
+
 ## Filesystem safety
 
-The reference store rejects a final state path that is a symbolic link or a non-regular file, uses a bounded read, rejects unknown JSON fields, and writes the committed file with `0600` permissions. The parent path is assumed to be operator-controlled. Hardened `openat`/`O_NOFOLLOW` traversal and remote object-store semantics are future work.
+The reference store rejects a final state path that is a symbolic link or a non-regular file, uses a bounded read, rejects unknown JSON fields, and writes the committed file with `0600` permissions. The parent path is assumed to be operator-controlled. Hardened `openat`/`O_NOFOLLOW` traversal remains future work for the filesystem backend.
 
 The Docker image creates `/var/lib/zerotrust-fl` owned by the non-root coordinator UID. Default Docker Compose sets:
 
@@ -64,23 +70,23 @@ For the filesystem backend, a backup is a copy of the last committed state file.
 
 Restore the snapshot only with the same supported state schema and recovery-critical coordinator policy. Keep backup copies protected as sensitive data.
 
-The PostgreSQL backend has its own migration ledger and backup/restore guidance in [`postgres-state-v0.6.md`](postgres-state-v0.6.md).
+The PostgreSQL backend has migration and database backup guidance in [`postgres-state-v0.6.md`](postgres-state-v0.6.md). Artifact-backed PostgreSQL backups must also retain every S3-compatible object referenced by the database snapshot; restore ordering and object-integrity requirements are documented in [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md).
 
-## CI recovery gate
+## CI recovery gates
 
 The Docker integration job freezes workers, copies selected filesystem durable state, restarts the coordinator, waits for health, and verifies that the model protobuf, recovery policy, and pending-round state survive the restart. Workers are then resumed and the existing benchmark smoke suite runs against the recovered cluster.
 
-A separate CI job exercises the PostgreSQL backend against a real PostgreSQL service, including migration, round-trip, reconnect, overwrite, and fail-closed schema checks.
+A separate durable-state CI job exercises PostgreSQL against a real PostgreSQL service. With model-artifact support enabled it also uses a pinned S3-compatible test fixture to verify inline-row migration, content-addressed externalization, reconnect recovery, missing-backend rejection, and object-digest corruption failure.
 
 ## Deliberate limitations
 
-The combined filesystem and PostgreSQL slices still do not claim full v0.6 completion. In particular, they do not yet provide:
+The combined filesystem, PostgreSQL, and S3-compatible artifact slices still do not claim full v0.6 completion. In particular, they do not yet provide:
 
-- an S3-compatible model artifact store;
 - Redis-backed distributed leases or rate limits;
 - multi-coordinator fencing or consensus;
+- automatic artifact garbage collection/lifecycle management;
 - automated backup scheduling or restore drills;
 - durable audit export; or
 - credential-rotation and revocation lifecycle persistence.
 
-The `StateStore` interface retains one recovery contract across the filesystem and PostgreSQL implementations so later artifact-store and operational changes do not need to rewrite hardened coordinator RPC semantics.
+The `StateStore` interface retains one recovery contract across the filesystem and PostgreSQL implementations, while `ModelArtifactStore` keeps model-object storage replaceable without rewriting hardened coordinator RPC semantics.

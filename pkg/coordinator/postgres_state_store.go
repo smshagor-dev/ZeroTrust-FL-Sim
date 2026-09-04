@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	"google.golang.org/protobuf/proto"
@@ -23,7 +24,8 @@ const postgresMigrationLockKey int64 = 0x5A54464C53544154
 var postgresMigrations embed.FS
 
 type PostgresStateStore struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	artifacts ModelArtifactStore
 }
 
 type postgresMigration struct {
@@ -33,6 +35,17 @@ type postgresMigration struct {
 }
 
 func NewPostgresStateStore(ctx context.Context, dsn string) (*PostgresStateStore, error) {
+	return newPostgresStateStore(ctx, dsn, nil)
+}
+
+func NewPostgresStateStoreWithArtifacts(ctx context.Context, dsn string, artifacts ModelArtifactStore) (*PostgresStateStore, error) {
+	if artifacts == nil {
+		return nil, errors.New("model artifact store is required")
+	}
+	return newPostgresStateStore(ctx, dsn, artifacts)
+}
+
+func newPostgresStateStore(ctx context.Context, dsn string, artifacts ModelArtifactStore) (*PostgresStateStore, error) {
 	trimmed := strings.TrimSpace(dsn)
 	if trimmed == "" {
 		return nil, errors.New("PostgreSQL DSN is required")
@@ -51,7 +64,7 @@ func NewPostgresStateStore(ctx context.Context, dsn string) (*PostgresStateStore
 	if err != nil {
 		return nil, fmt.Errorf("create PostgreSQL connection pool: %w", err)
 	}
-	store := &PostgresStateStore{pool: pool}
+	store := &PostgresStateStore{pool: pool, artifacts: artifacts}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("connect PostgreSQL state store: %w", err)
@@ -85,10 +98,16 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 		registrationsJSON  []byte
 		noncesJSON         []byte
 		rateWindowsJSON    []byte
+		artifactBucket     pgtype.Text
+		artifactKey        pgtype.Text
+		artifactSHA256     []byte
+		artifactSize       pgtype.Int8
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT state_schema_version, policy, model_proto, pending_updates,
-		       registrations, replay_nonces, rate_windows
+		       registrations, replay_nonces, rate_windows,
+		       model_artifact_bucket, model_artifact_key,
+		       model_artifact_sha256, model_artifact_size_bytes
 		FROM ztfl_coordinator_state
 		WHERE singleton_id = 1
 	`).Scan(
@@ -99,6 +118,10 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 		&registrationsJSON,
 		&noncesJSON,
 		&rateWindowsJSON,
+		&artifactBucket,
+		&artifactKey,
+		&artifactSHA256,
+		&artifactSize,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StateSnapshot{}, ErrStateNotFound
@@ -134,6 +157,34 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	if err := proto.Unmarshal(modelBytes, model); err != nil {
 		return StateSnapshot{}, fmt.Errorf("decode PostgreSQL global model: %w", err)
 	}
+
+	hasArtifactRef := artifactBucket.Valid || artifactKey.Valid || artifactSHA256 != nil || artifactSize.Valid
+	if hasArtifactRef {
+		if !artifactBucket.Valid || !artifactKey.Valid || len(artifactSHA256) == 0 || !artifactSize.Valid {
+			return StateSnapshot{}, errors.New("PostgreSQL coordinator state contains an incomplete model artifact reference")
+		}
+		if len(model.GetWeightsPayload()) != 0 {
+			return StateSnapshot{}, errors.New("PostgreSQL coordinator state contains both inline and artifact-backed model payloads")
+		}
+		if s.artifacts == nil {
+			return StateSnapshot{}, errors.New("PostgreSQL coordinator state references a model artifact but no artifact store is configured")
+		}
+		ref := ModelArtifactRef{
+			Bucket:    artifactBucket.String,
+			Key:       artifactKey.String,
+			SHA256:    append([]byte(nil), artifactSHA256...),
+			SizeBytes: artifactSize.Int64,
+		}
+		if len(model.GetSha256()) != len(ref.SHA256) || !bytes.Equal(model.GetSha256(), ref.SHA256) {
+			return StateSnapshot{}, errors.New("PostgreSQL model metadata digest does not match the artifact reference")
+		}
+		payload, err := s.artifacts.Get(ctx, ref)
+		if err != nil {
+			return StateSnapshot{}, fmt.Errorf("load global model artifact: %w", err)
+		}
+		model.WeightsPayload = payload
+	}
+
 	snapshot.Model = model
 	if err := validateStateSnapshot(snapshot); err != nil {
 		return StateSnapshot{}, fmt.Errorf("validate PostgreSQL coordinator state: %w", err)
@@ -152,15 +203,29 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 		return fmt.Errorf("validate PostgreSQL coordinator state before commit: %w", err)
 	}
 
-	modelBytes, err := proto.Marshal(snapshot.Model)
-	if err != nil {
-		return fmt.Errorf("encode PostgreSQL global model: %w", err)
-	}
 	canonical := cloneStateSnapshot(snapshot)
 	sort.Slice(canonical.Pending, func(i, j int) bool { return canonical.Pending[i].NodeID < canonical.Pending[j].NodeID })
 	sort.Slice(canonical.Registrations, func(i, j int) bool { return canonical.Registrations[i].NodeID < canonical.Registrations[j].NodeID })
 	sort.Slice(canonical.Nonces, func(i, j int) bool { return canonical.Nonces[i].Key < canonical.Nonces[j].Key })
 	sort.Slice(canonical.RateWindows, func(i, j int) bool { return canonical.RateWindows[i].NodeID < canonical.RateWindows[j].NodeID })
+
+	modelForStorage := proto.Clone(canonical.Model).(*flv1.GlobalModel)
+	var artifactRef *ModelArtifactRef
+	if s.artifacts != nil && len(modelForStorage.GetWeightsPayload()) > 0 {
+		ref, err := s.artifacts.Put(ctx, modelForStorage.GetWeightsPayload())
+		if err != nil {
+			return fmt.Errorf("persist global model artifact: %w", err)
+		}
+		if len(modelForStorage.GetSha256()) != len(ref.SHA256) || !bytes.Equal(modelForStorage.GetSha256(), ref.SHA256) {
+			return errors.New("model artifact digest does not match validated global model digest")
+		}
+		artifactRef = &ref
+		modelForStorage.WeightsPayload = nil
+	}
+	modelBytes, err := proto.Marshal(modelForStorage)
+	if err != nil {
+		return fmt.Errorf("encode PostgreSQL global model: %w", err)
+	}
 
 	policyJSON, err := json.Marshal(canonical.Policy)
 	if err != nil {
@@ -183,6 +248,17 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 		return fmt.Errorf("encode PostgreSQL rate windows: %w", err)
 	}
 
+	var artifactBucket any
+	var artifactKey any
+	var artifactSHA any
+	var artifactSize any
+	if artifactRef != nil {
+		artifactBucket = artifactRef.Bucket
+		artifactKey = artifactRef.Key
+		artifactSHA = artifactRef.SHA256
+		artifactSize = artifactRef.SizeBytes
+	}
+
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin PostgreSQL state transaction: %w", err)
@@ -198,8 +274,12 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 			pending_updates,
 			registrations,
 			replay_nonces,
-			rate_windows
-		) VALUES (1, $1, $2::jsonb, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb)
+			rate_windows,
+			model_artifact_bucket,
+			model_artifact_key,
+			model_artifact_sha256,
+			model_artifact_size_bytes
+		) VALUES (1, $1, $2::jsonb, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11)
 		ON CONFLICT (singleton_id) DO UPDATE SET
 			state_schema_version = EXCLUDED.state_schema_version,
 			policy = EXCLUDED.policy,
@@ -208,6 +288,10 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 			registrations = EXCLUDED.registrations,
 			replay_nonces = EXCLUDED.replay_nonces,
 			rate_windows = EXCLUDED.rate_windows,
+			model_artifact_bucket = EXCLUDED.model_artifact_bucket,
+			model_artifact_key = EXCLUDED.model_artifact_key,
+			model_artifact_sha256 = EXCLUDED.model_artifact_sha256,
+			model_artifact_size_bytes = EXCLUDED.model_artifact_size_bytes,
 			updated_at = CURRENT_TIMESTAMP
 	`,
 		coordinatorStateSchemaVersion,
@@ -217,6 +301,10 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 		string(registrationsJSON),
 		string(noncesJSON),
 		string(rateWindowsJSON),
+		artifactBucket,
+		artifactKey,
+		artifactSHA,
+		artifactSize,
 	)
 	if err != nil {
 		return fmt.Errorf("write PostgreSQL coordinator state: %w", err)

@@ -43,7 +43,7 @@ jobs:
         run: go test -v ./... -count=1
 
   postgres-state:
-    name: PostgreSQL durable state
+    name: PostgreSQL and S3 durable state
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -61,8 +61,28 @@ jobs:
           --health-retries 12
     env:
       ZTFL_TEST_POSTGRES_DSN: postgres://ztfl:ztfl-ci-only@127.0.0.1:5432/ztfl?sslmode=disable
+      ZTFL_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      ZTFL_TEST_S3_BUCKET: ztfl-model-artifacts
+      ZTFL_TEST_S3_ACCESS_KEY_ID: ztfltest
+      ZTFL_TEST_S3_SECRET_ACCESS_KEY: ztfltest-secret-change-me
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Start pinned S3-compatible test fixture
+        run: |
+          docker run -d --name ztfl-minio \
+            -p 127.0.0.1:9000:9000 \
+            -e MINIO_ROOT_USER="$ZTFL_TEST_S3_ACCESS_KEY_ID" \
+            -e MINIO_ROOT_PASSWORD="$ZTFL_TEST_S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z \
+            server /data
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs ztfl-minio >&2 || true
+          exit 1
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -78,8 +98,22 @@ jobs:
         run: make proto
       - name: Hydrate Go module checksums
         run: go mod tidy
-      - name: Test PostgreSQL state migrations and recovery
-        run: go test -v ./pkg/coordinator -run PostgresStateStore -count=1
+      - name: Test PostgreSQL migrations and S3 artifact recovery
+        run: go test -v ./pkg/coordinator -run 'Test(PostgresStateStore|S3ArtifactStore)' -count=1
+      - name: Capture S3-compatible fixture logs
+        if: always()
+        run: docker logs ztfl-minio > minio-ci.log 2>&1 || true
+      - name: Upload S3-compatible fixture logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: s3-fixture-logs-${{ github.run_id }}
+          path: minio-ci.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop S3-compatible test fixture
+        if: always()
+        run: docker rm -f ztfl-minio >/dev/null 2>&1 || true
 
   python-native:
     name: Python and C++20 native extension
