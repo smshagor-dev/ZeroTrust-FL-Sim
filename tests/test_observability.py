@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import torch
 import yaml
 from prometheus_client import generate_latest
-
 from zerotrust_fl.attacks import AttackConfig, PoisoningAttack
 from zerotrust_fl.observability import TelemetryRuntime
 
