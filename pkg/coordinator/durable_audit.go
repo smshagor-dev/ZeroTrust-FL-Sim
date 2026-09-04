@@ -4,6 +4,8 @@ import (
 	"context"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (s *DurableService) commitOrRollbackTransition(
@@ -24,12 +26,12 @@ func (s *DurableService) commitOrRollbackTransition(
 	}
 
 	if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
-		return durableRollbackError(operation, "in-memory", restoreErr)
+		return status.Errorf(codes.Internal, "durable %s commit failed and in-memory rollback failed: %v", operation, restoreErr)
 	}
 	if rollbackErr := s.store.Commit(context.Background(), before); rollbackErr != nil {
-		return durableRollbackError(operation, "persistent", rollbackErr)
+		return status.Errorf(codes.Internal, "durable %s commit failed and persistent rollback failed: %v", operation, rollbackErr)
 	}
-	return durableCommitError(operation)
+	return status.Errorf(codes.Internal, "durable %s commit failed; previous state restored", operation)
 }
 
 func (s *DurableService) commitCurrentStateWithAudit(ctx context.Context, events []AuditEvent) error {
