@@ -21,7 +21,7 @@ func main() {
 		issuer               = flag.String("token-issuer", "zerotrust-fl-sim", "JWT issuer")
 		audience             = flag.String("token-audience", "zerotrust-fl-services", "JWT audience")
 		tokenTTL             = flag.Duration("token-ttl", 24*time.Hour, "development JWT lifetime")
-		certificateAlgorithm = flag.String("certificate-algorithm", ztsecurity.CertificateAlgorithmEd25519, "X.509 key algorithm: ed25519 or mldsa65")
+		certificateAlgorithm = flag.String("certificate-algorithm", ztsecurity.CertificateAlgorithmECDSAP256, "X.509 key algorithm: ecdsa-p256, ed25519, or mldsa65")
 	)
 	flag.Parse()
 
