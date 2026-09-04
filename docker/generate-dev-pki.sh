@@ -5,7 +5,7 @@ umask 077
 WORKDIR="$(mktemp -d /tmp/ztfl-pki.XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
-CERT_ALGORITHM="${ZTFL_CERTIFICATE_ALGORITHM:-ed2559}"
+CERT_ALGORITHM="${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}"
 CLIENTS="${ZTFL_CERTGEN_CLIENTS:-health-probe=edge-worker,benign-worker-1=edge-worker,benign-worker-2=edge-worker,benign-worker-3=edge-worker,malicious-worker-1=edge-worker}"
 
 /usr/local/bin/certgen \
@@ -37,7 +37,7 @@ copy_worker() {
 COORDINATOR_OUT="/out/coordinator"
 copy_public "$COORDINATOR_OUT"
 install -m 0444 "$WORKDIR/server.crt" "$COORDINATOR_OUT/server.crt"
-install -m 0400 "$WORKDIR/server.key" "$CO_COORDINATOR_OUT/server.key" 2>/dev/null || install -m 0400 "$WORKDIR/server.key" "$COORDINATOR_OUT/server.key"
+install -m 0400 "$WORKDIR/server.key" "$COORDINATOR_OUT/server.key"
 install -m 0444 "$WORKDIR/jwt_signing_public.pem" "$COORDINATOR_OUT/jwt_signing_public.pem"
 install -m 0444 "$WORKDIR/health-probe.crt" "$COORDINATOR_OUT/health-probe.crt"
 install -m 0400 "$WORKDIR/health-probe.key" "$COORDINATOR_OUT/health-probe.key"
