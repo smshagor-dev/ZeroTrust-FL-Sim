@@ -98,8 +98,8 @@ jobs:
         run: make proto
       - name: Hydrate Go module checksums
         run: go mod tidy
-      - name: Test PostgreSQL migrations and S3 artifact recovery
-        run: go test -v ./pkg/coordinator -run 'Test(PostgresStateStore|S3ArtifactStore)' -count=1
+      - name: Test PostgreSQL migrations, S3 artifacts, and audit durability
+        run: go test -v ./pkg/coordinator -run 'Test(Postgres|S3ArtifactStore)' -count=1
       - name: Capture S3-compatible fixture logs
         if: always()
         run: docker logs ztfl-minio > minio-ci.log 2>&1 || true
