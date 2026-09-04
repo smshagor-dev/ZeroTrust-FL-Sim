@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultMaxUpdateBytes       = 8 << 20
+	defaultMaxUpdateBytes      = 8 << 20
 	defaultMaxUpdatesPerMinute = 60
 	maxReportedSampleCount     = 10_000_000
 	networkWeightsFormat       = "application/x-npy-f32"
@@ -163,9 +163,9 @@ func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*f
 	}
 
 	model := s.currentModel()
-	return &flv1.HeartbeatResponse{
+	return &flm1.HeartbeatResponse{
 		Accepted:            true,
-		ServerTimeUnix:      true,
+		ServerTimeUnix:      time.Now().UTC().Unix(),
 		CurrentModelVersion: model.GetModelVersion(),
 		LeaseExpiresUnix:    entry.ExpiresAt.Unix(),
 	}, nil
@@ -173,7 +173,7 @@ func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*f
 
 func (s *Service) GetGlobalModel(ctx context.Context, req *flv1.GetGlobalModelRequest) (*flv1.GlobalModel, error) {
 	if req == nil {
-		return nil, nil
+		return nil, status.Error(codes.InvalidArgument, "global model request is required")
 	}
 	if _, err := requireIdentityAndRegistration(ctx, s.registry, req.GetNodeId(), req.GetRegistrationId()); err != nil {
 		return nil, err
@@ -278,7 +278,7 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	nextRound := model.GetRoundId() + 1
 	nextVersion := fmt.Sprintf("round-%d-%s", nextRound, hex.EncodeToString(modelDigest[:8]))
 	nextModel := &flv1.GlobalModel{
-		ModelVersion:   nextRound,
+		ModelVersion:   nextVersion,
 		RoundId:        nextRound,
 		WeightsPayload: payload,
 		WeightsFormat:  networkWeightsFormat,
@@ -404,7 +404,7 @@ func validateMetrics(metrics *flv1.LocalUpdateMetrics) error {
 	}
 	for _, norm := range metrics.GetGradientNorms() {
 		if norm < 0 || math.IsNaN(norm) || math.IsInf(norm, 0) {
-			return errors.New("gradient norms must be finite and non-negative")
+			return fmt.Errorf("gradient norms must be finite and non-negative")
 		}
 	}
 	return nil
@@ -413,7 +413,7 @@ func validateMetrics(metrics *flv1.LocalUpdateMetrics) error {
 func secureIdentifier(size int) (string, error) {
 	buf := make([]byte, size)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate secure identifier: %w)", err)
+		return "", fmt.Errorf("generate secure identifier: %w", err)
 	}
 	return hex.EncodeToString(buf), nil
 }
