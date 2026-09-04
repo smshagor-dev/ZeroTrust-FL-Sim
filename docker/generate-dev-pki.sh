@@ -5,7 +5,10 @@ umask 077
 WORKDIR="$(mktemp -d /tmp/ztfl-pki.XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
-CERT_ALGORITHM="${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}"
+# ECDSA P-256 is the interoperable default for Go crypto/tls and gRPC
+# Python's bundled BoringSSL. Ed25519 and ML-DSA remain opt-in for explicit
+# Go-only or PQC identity experiments via ZTFL_CERTIFICATE_ALGORITHM.
+CERT_ALGORITHM="${ZTFL_CERTIFICATE_ALGORITHM:-ecdsa-p256}"
 CLIENTS="${ZTFL_CERTGEN_CLIENTS:-health-probe=edge-worker,benign-worker-1=edge-worker,benign-worker-2=edge-worker,benign-worker-3=edge-worker,malicious-worker-1=edge-worker}"
 
 /usr/local/bin/certgen \
