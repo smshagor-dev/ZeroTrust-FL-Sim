@@ -36,5 +36,5 @@ pytest-asyncio>=1,<2
 pytest-cov>=6,<8
 
 # Development quality
-ruff>=0.12,<1
+ruff>=0.16.5,<1
 mypy>=1.15,<2
