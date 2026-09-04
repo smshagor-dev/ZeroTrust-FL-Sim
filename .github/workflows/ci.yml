@@ -65,6 +65,8 @@ jobs:
       ZTFL_TEST_S3_BUCKET: ztfl-model-artifacts
       ZTFL_TEST_S3_ACCESS_KEY_ID: ztfltest
       ZTFL_TEST_S3_SECRET_ACCESS_KEY: ztfltest-secret-change-me
+      ZTFL_TEST_PG_DUMP: ./scripts/recovery/pg_dump_18_ci.sh
+      ZTFL_TEST_PG_RESTORE: ./scripts/recovery/pg_restore_18_ci.sh
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Start pinned S3-compatible test fixture
@@ -98,8 +100,14 @@ jobs:
         run: make proto
       - name: Hydrate Go module checksums
         run: go mod tidy
+      - name: Make recovery PostgreSQL wrappers executable
+        run: chmod 0555 scripts/recovery/pg_dump_18_ci.sh scripts/recovery/pg_restore_18_ci.sh
       - name: Test PostgreSQL migrations, S3 artifacts, and audit durability
         run: go test -v ./pkg/coordinator -run 'Test(Postgres|S3ArtifactStore)' -count=1
+      - name: Test clean-room disaster recovery
+        run: go test -v ./pkg/recovery -run TestDisasterRecoveryBackupDestroyRestore -count=1
+      - name: Build pinned recovery image
+        run: docker build -f docker/Dockerfile.recovery -t ztfl-recovery:ci .
       - name: Capture S3-compatible fixture logs
         if: always()
         run: docker logs ztfl-minio > minio-ci.log 2>&1 || true
