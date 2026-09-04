@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
 from zerotrust_fl.aggregators.native_cpp import CudaByzantineAggregator
 from zerotrust_fl.client import grpc_worker
 from zerotrust_fl.data import partition_dataset
