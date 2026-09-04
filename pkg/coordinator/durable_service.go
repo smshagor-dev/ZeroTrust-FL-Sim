@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
@@ -120,6 +121,16 @@ func (s *DurableService) commitCurrentState(ctx context.Context) error {
 	return s.store.Commit(ctx, s.captureSnapshot())
 }
 
+func (s *DurableService) currentPolicy() StatePolicy {
+	return StatePolicy{
+		LeaseTTL:            s.service.leaseTTL,
+		MaxUpdateBytes:      s.service.maxUpdateBytes,
+		MinUpdates:          s.service.minUpdates,
+		MaxUpdatesPerMinute: s.service.maxUpdatesPerMinute,
+		AggregationMethod:   s.service.aggregationMethod,
+	}
+}
+
 func (s *DurableService) captureSnapshot() StateSnapshot {
 	s.service.roundMu.Lock()
 	defer s.service.roundMu.Unlock()
@@ -135,16 +146,46 @@ func (s *DurableService) captureSnapshot() StateSnapshot {
 	}
 	sort.Slice(pending, func(i, j int) bool { return pending[i].NodeID < pending[j].NodeID })
 
+	now := time.Now().UTC()
+	replayCutoff := now.Add(-requestReplayWindow)
+	nonces := make([]PersistedNonce, 0, len(s.service.nonces))
+	for key, seenAt := range s.service.nonces {
+		if seenAt.Before(replayCutoff) {
+			continue
+		}
+		nonces = append(nonces, PersistedNonce{Key: key, SeenAt: seenAt})
+	}
+	sort.Slice(nonces, func(i, j int) bool { return nonces[i].Key < nonces[j].Key })
+
+	rateWindows := make([]PersistedRateWindow, 0, len(s.service.rates))
+	for nodeID, window := range s.service.rates {
+		if window.StartedAt.IsZero() || now.Sub(window.StartedAt) >= time.Minute {
+			continue
+		}
+		rateWindows = append(rateWindows, PersistedRateWindow{
+			NodeID:    nodeID,
+			StartedAt: window.StartedAt,
+			Count:     window.Count,
+		})
+	}
+	sort.Slice(rateWindows, func(i, j int) bool { return rateWindows[i].NodeID < rateWindows[j].NodeID })
+
 	return StateSnapshot{
+		Policy:        s.currentPolicy(),
 		Model:         s.service.currentModel(),
 		Pending:       pending,
 		Registrations: s.service.registry.Snapshot(),
+		Nonces:        nonces,
+		RateWindows:   rateWindows,
 	}
 }
 
 func (s *DurableService) restoreSnapshot(snapshot StateSnapshot) error {
 	if err := validateStateSnapshot(snapshot); err != nil {
 		return err
+	}
+	if snapshot.Policy != s.currentPolicy() {
+		return fmt.Errorf("durable coordinator policy does not match current runtime configuration")
 	}
 
 	pending := make(map[string]pendingUpdate, len(snapshot.Pending))
@@ -157,6 +198,23 @@ func (s *DurableService) restoreSnapshot(snapshot StateSnapshot) error {
 		}
 	}
 
+	now := time.Now().UTC()
+	replayCutoff := now.Add(-requestReplayWindow)
+	nonces := make(map[string]time.Time, len(snapshot.Nonces))
+	for _, nonce := range snapshot.Nonces {
+		if nonce.SeenAt.Before(replayCutoff) {
+			continue
+		}
+		nonces[nonce.Key] = nonce.SeenAt
+	}
+	rates := make(map[string]updateRateWindow, len(snapshot.RateWindows))
+	for _, window := range snapshot.RateWindows {
+		if now.Sub(window.StartedAt) >= time.Minute {
+			continue
+		}
+		rates[window.NodeID] = updateRateWindow{StartedAt: window.StartedAt, Count: window.Count}
+	}
+
 	s.service.roundMu.Lock()
 	defer s.service.roundMu.Unlock()
 
@@ -167,5 +225,7 @@ func (s *DurableService) restoreSnapshot(snapshot StateSnapshot) error {
 	s.service.model = proto.Clone(snapshot.Model).(*flv1.GlobalModel)
 	s.service.modelMu.Unlock()
 	s.service.pending = pending
+	s.service.nonces = nonces
+	s.service.rates = rates
 	return nil
 }
