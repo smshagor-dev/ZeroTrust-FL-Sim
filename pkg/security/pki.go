@@ -2,7 +2,9 @@ package security
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/x509"
@@ -22,8 +24,9 @@ import (
 const DefaultTrustDomain = "zerotrust-fl.local"
 
 const (
-	CertificateAlgorithmEd25519 = "ed25519"
-	CertificateAlgorithmMLDSA65 = "mldsa65"
+	CertificateAlgorithmECDSAP256 = "ecdsa-p256"
+	CertificateAlgorithmEd25519   = "ed25519"
+	CertificateAlgorithmMLDSA65   = "mldsa65"
 )
 
 type DevelopmentClient struct {
@@ -251,18 +254,27 @@ func GenerateDevelopmentPKI(cfg DevelopmentPKIConfig) (*DevelopmentPKIArtifacts,
 func normalizeCertificateAlgorithm(value string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	if normalized == "" {
-		return CertificateAlgorithmEd25519, nil
+		return CertificateAlgorithmECDSAP256, nil
 	}
 	switch normalized {
-	case CertificateAlgorithmEd25519, CertificateAlgorithmMLDSA65:
+	case CertificateAlgorithmECDSAP256, CertificateAlgorithmEd25519, CertificateAlgorithmMLDSA65:
 		return normalized, nil
 	default:
-		return "", fmt.Errorf("unsupported certificate algorithm %q; expected ed25519 or mldsa65", value)
+		return "", fmt.Errorf(
+			"unsupported certificate algorithm %q; expected ecdsa-p256, ed25519, or mldsa65",
+			value,
+		)
 	}
 }
 
 func generateCertificateKey(algorithm string) (crypto.PublicKey, crypto.Signer, error) {
 	switch algorithm {
+	case CertificateAlgorithmECDSAP256:
+		privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return nil, nil, err
+		}
+		return privateKey.Public(), privateKey, nil
 	case CertificateAlgorithmEd25519:
 		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
