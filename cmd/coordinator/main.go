@@ -36,6 +36,7 @@ func main() {
 		minUpdates          = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
 		maxUpdatesPerMinute = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
 		aggregationMethod   = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
+		stateFile           = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; empty keeps volatile state")
 		pqcModeValue        = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
 		requirePQCIdentity  = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
 		metricsAddress      = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
@@ -102,16 +103,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	service, err := coordinator.NewService(registry, coordinator.Config{
+	serviceConfig := coordinator.Config{
 		LeaseTTL:            *leaseTTL,
 		MaxUpdateBytes:      *maxMessage,
 		MinUpdates:          *minUpdates,
 		MaxUpdatesPerMinute: *maxUpdatesPerMinute,
 		AggregationMethod:   *aggregationMethod,
-	})
-	if err != nil {
-		logger.Error("configure coordinator service", "error", err)
-		os.Exit(1)
+	}
+	var service flv1.CoordinatorServiceServer
+	durableStateEnabled := *stateFile != ""
+	if durableStateEnabled {
+		stateStore, err := coordinator.NewFileStateStore(*stateFile)
+		if err != nil {
+			logger.Error("configure coordinator state store", "error", err)
+			os.Exit(1)
+		}
+		service, err = coordinator.NewDurableService(registry, serviceConfig, stateStore)
+		if err != nil {
+			logger.Error("recover durable coordinator state", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		service, err = coordinator.NewService(registry, serviceConfig)
+		if err != nil {
+			logger.Error("configure coordinator service", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	grpcServer := grpc.NewServer(
@@ -154,6 +171,7 @@ func main() {
 			"min_updates", *minUpdates,
 			"max_updates_per_minute", *maxUpdatesPerMinute,
 			"aggregation_method", *aggregationMethod,
+			"durable_state", durableStateEnabled,
 		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()
