@@ -48,11 +48,8 @@ func (s *DurableService) RegisterNode(ctx context.Context, req *flv1.RegisterNod
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitCurrentState(ctx); err != nil {
-		if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
-			return nil, status.Errorf(codes.Internal, "durable registration commit failed and rollback failed: %v", restoreErr)
-		}
-		return nil, status.Error(codes.Internal, "durable registration commit failed")
+	if err := s.commitOrRollback(ctx, before, "registration"); err != nil {
+		return nil, err
 	}
 	return response, nil
 }
@@ -66,16 +63,15 @@ func (s *DurableService) Heartbeat(ctx context.Context, req *flv1.HeartbeatReque
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitCurrentState(ctx); err != nil {
-		if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
-			return nil, status.Errorf(codes.Internal, "durable lease commit failed and rollback failed: %v", restoreErr)
-		}
-		return nil, status.Error(codes.Internal, "durable lease commit failed")
+	if err := s.commitOrRollback(ctx, before, "lease"); err != nil {
+		return nil, err
 	}
 	return response, nil
 }
 
 func (s *DurableService) GetGlobalModel(ctx context.Context, req *flv1.GetGlobalModelRequest) (*flv1.GlobalModel, error) {
+	s.persistenceMu.Lock()
+	defer s.persistenceMu.Unlock()
 	return s.service.GetGlobalModel(ctx, req)
 }
 
@@ -88,13 +84,24 @@ func (s *DurableService) SubmitLocalUpdate(ctx context.Context, req *flv1.Submit
 	if err != nil {
 		return nil, err
 	}
-	if err := s.commitCurrentState(ctx); err != nil {
-		if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
-			return nil, status.Errorf(codes.Internal, "durable model-state commit failed and rollback failed: %v", restoreErr)
-		}
-		return nil, status.Error(codes.Internal, "durable model-state commit failed")
+	if err := s.commitOrRollback(ctx, before, "model-state"); err != nil {
+		return nil, err
 	}
 	return response, nil
+}
+
+func (s *DurableService) commitOrRollback(ctx context.Context, before StateSnapshot, operation string) error {
+	if err := s.commitCurrentState(ctx); err == nil {
+		return nil
+	}
+
+	if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
+		return status.Errorf(codes.Internal, "durable %s commit failed and in-memory rollback failed: %v", operation, restoreErr)
+	}
+	if rollbackErr := s.store.Commit(context.Background(), before); rollbackErr != nil {
+		return status.Errorf(codes.Internal, "durable %s commit failed and persistent rollback failed: %v", operation, rollbackErr)
+	}
+	return status.Errorf(codes.Internal, "durable %s commit failed; previous state restored", operation)
 }
 
 func (s *DurableService) recoverOrInitialize(ctx context.Context) error {
