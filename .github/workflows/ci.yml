@@ -118,7 +118,7 @@ jobs:
             service="$1"
             container_id="$(docker compose ps -q "$service")"
             if [ -z "$container_id" ]; then
-              echo "service $service has no container" >&2
+              echo "service $service has no running container" >&2
               return 1
             fi
             for _ in $(seq 1 60); do
@@ -160,10 +160,19 @@ jobs:
               if before.get(key) != after.get(key):
                   raise SystemExit(f"durable coordinator restart changed {key}")
           PY
-          docker compose start benign-worker-1 benign-worker-2 benign-worker-3 malicious-worker-1
+          for service in benign-worker-1 benign-worker-2 benign-worker-3 malicious-worker-1; do
+            container_id="$(docker compose ps -aq "$service")"
+            if [ -z "$container_id" ]; then
+              echo "service $service has no existing container" >&2
+              exit 1
+            fi
+            docker start "$container_id"
+          done
           for service in benign-worker-1 benign-worker-2 benign-worker-3 malicious-worker-1; do
             wait_healthy "$service"
           done
+          PKI_AFTER_WORKERS="$(docker compose exec -T coordinator sha256sum /certs/ca.crt /certs/server.crt /certs/jwt_signing_public.pem)"
+          test "$PKI_BEFORE" = "$PKI_AFTER_WORKERS"
       - name: Run benchmark smoke suite
         run: >-
           docker compose run --rm --no-deps --entrypoint python benign-worker-1
