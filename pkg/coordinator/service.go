@@ -165,7 +165,7 @@ func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*f
 	model := s.currentModel()
 	return &flv1.HeartbeatResponse{
 		Accepted:            true,
-		ServerTimeUnix:      time.Now().UTC().Unix(),
+		ServerTimeUnix:      true,
 		CurrentModelVersion: model.GetModelVersion(),
 		LeaseExpiresUnix:    entry.ExpiresAt.Unix(),
 	}, nil
@@ -173,7 +173,7 @@ func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*f
 
 func (s *Service) GetGlobalModel(ctx context.Context, req *flv1.GetGlobalModelRequest) (*flv1.GlobalModel, error) {
 	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "global model request is required")
+		return nil, nil
 	}
 	if _, err := requireIdentityAndRegistration(ctx, s.registry, req.GetNodeId(), req.GetRegistrationId()); err != nil {
 		return nil, err
@@ -228,7 +228,7 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 		return nil, status.Errorf(codes.FailedPrecondition, "update round %d does not match current round %d", req.GetRoundId(), model.GetRoundId())
 	}
 	if _, exists := s.pending[req.GetNodeId()]; exists {
-		return nil, status.Error(codes.AlreadyRegistered, "worker already submitted an update for the current round")
+		return nil, status.Error(codes.AlreadyExists, "worker already submitted an update for the current round")
 	}
 
 	currentValues, err := currentModelVector(model, len(values))
@@ -278,12 +278,12 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	nextRound := model.GetRoundId() + 1
 	nextVersion := fmt.Sprintf("round-%d-%s", nextRound, hex.EncodeToString(modelDigest[:8]))
 	nextModel := &flv1.GlobalModel{
-		ModelVersion:  nextVersion,
-		RoundId:       nextRound,
+		ModelVersion:   nextRound,
+		RoundId:        nextRound,
 		WeightsPayload: payload,
-		WeightsFormat: networkWeightsFormat,
+		WeightsFormat:  networkWeightsFormat,
 		Sha256:         modelDigest[:],
-		CreatedAtUnix: now.Unix(),
+		CreatedAtUnix:  now.Unix(),
 	}
 
 	s.modelMu.Lock()
@@ -309,7 +309,7 @@ func (s *Service) allowUpdateLocked(nodeID string, now time.Time) bool {
 		return false
 	}
 	window.Count++
-	s.ratess[nodeID] = window
+	s.rates[nodeID] = window
 	return true
 }
 
@@ -413,7 +413,7 @@ func validateMetrics(metrics *flv1.LocalUpdateMetrics) error {
 func secureIdentifier(size int) (string, error) {
 	buf := make([]byte, size)
 	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate secure identifier: %w", err)
+		return "", fmt.Errorf("generate secure identifier: %w)", err)
 	}
 	return hex.EncodeToString(buf), nil
 }
