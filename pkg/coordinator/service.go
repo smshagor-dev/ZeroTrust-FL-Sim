@@ -155,10 +155,11 @@ func (s *Service) RegisterNode(ctx context.Context, req *flv1.RegisterNodeReques
 	}
 
 	return &flv1.RegisterNodeResponse{
-		Accepted:         true,
-		RegistrationId:   entry.RegistrationID,
-		AssignedRole:     entry.Role,
-		LeaseExpiresUnix: entry.ExpiresAt.Unix(),
+		Accepted:             true,
+		RegistrationId:       entry.RegistrationID,
+		AssignedRole:         entry.Role,
+		LeaseExpiresUnix:     entry.ExpiresAt.Unix(),
+		CredentialGeneration: entry.Generation,
 	}, nil
 }
 
@@ -177,10 +178,11 @@ func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*f
 
 	model := s.currentModel()
 	return &flv1.HeartbeatResponse{
-		Accepted:            true,
-		ServerTimeUnix:      time.Now().UTC().Unix(),
-		CurrentModelVersion: model.GetModelVersion(),
-		LeaseExpiresUnix:    entry.ExpiresAt.Unix(),
+		Accepted:             true,
+		ServerTimeUnix:       time.Now().UTC().Unix(),
+		CurrentModelVersion:  model.GetModelVersion(),
+		LeaseExpiresUnix:     entry.ExpiresAt.Unix(),
+		CredentialGeneration: entry.Generation,
 	}, nil
 }
 
@@ -198,7 +200,8 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "local update request is required")
 	}
-	if _, err := requireIdentityAndRegistration(ctx, s.registry, req.GetNodeId(), req.GetRegistrationId()); err != nil {
+	identity, err := requireIdentityAndRegistration(ctx, s.registry, req.GetNodeId(), req.GetRegistrationId())
+	if err != nil {
 		return nil, err
 	}
 	if len(req.GetWeightsPayload()) == 0 {
@@ -233,6 +236,9 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	s.roundMu.Lock()
 	defer s.roundMu.Unlock()
 
+	if _, err := s.registry.Validate(identity, req.GetRegistrationId()); err != nil {
+		return nil, status.Error(codes.PermissionDenied, "registration was revoked, rotated, or expired before update commit")
+	}
 	if !s.acceptNonceLocked(req.GetNodeId(), req.GetSecurity().GetNonce(), now) {
 		return nil, status.Error(codes.AlreadyExists, "request nonce was already used")
 	}

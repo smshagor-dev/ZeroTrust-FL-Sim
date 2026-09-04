@@ -9,6 +9,8 @@ service CoordinatorService {
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc GetGlobalModel(GetGlobalModelRequest) returns (GlobalModel);
   rpc SubmitLocalUpdate(SubmitLocalUpdateRequest) returns (SubmitLocalUpdateResponse);
+  rpc RotateRegistration(RotateRegistrationRequest) returns (RotateRegistrationResponse);
+  rpc RevokeRegistration(RevokeRegistrationRequest) returns (RevokeRegistrationResponse);
 }
 
 message HardwareProfile {
@@ -43,6 +45,7 @@ message RegisterNodeResponse {
   string registration_id = 2;
   string assigned_role = 3;
   int64 lease_expires_unix = 4;
+  uint64 credential_generation = 5;
 }
 
 message HeartbeatRequest {
@@ -57,6 +60,7 @@ message HeartbeatResponse {
   int64 server_time_unix = 2;
   string current_model_version = 3;
   int64 lease_expires_unix = 4;
+  uint64 credential_generation = 5;
 }
 
 message GetGlobalModelRequest {
@@ -100,4 +104,33 @@ message SubmitLocalUpdateResponse {
   string update_id = 2;
   string reason = 3;
   string current_model_version = 4;
+}
+
+message RotateRegistrationRequest {
+  string node_id = 1;
+  string registration_id = 2;
+  SecurityMetadata security = 3;
+}
+
+message RotateRegistrationResponse {
+  bool accepted = 1;
+  string registration_id = 2;
+  int64 lease_expires_unix = 3;
+  uint64 credential_generation = 4;
+}
+
+message RevokeRegistrationRequest {
+  string node_id = 1;
+  string registration_id = 2;
+  string target_node_id = 3;
+  string reason = 4;
+  SecurityMetadata security = 5;
+}
+
+message RevokeRegistrationResponse {
+  bool accepted = 1;
+  string target_node_id = 2;
+  uint64 revoked_generation = 3;
+  int64 revoked_at_unix = 4;
+  int64 blocked_until_unix = 5;
 }
