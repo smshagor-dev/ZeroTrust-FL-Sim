@@ -65,8 +65,8 @@ jobs:
       ZTFL_TEST_S3_BUCKET: ztfl-model-artifacts
       ZTFL_TEST_S3_ACCESS_KEY_ID: ztfltest
       ZTFL_TEST_S3_SECRET_ACCESS_KEY: ztfltest-secret-change-me
-      ZTFL_TEST_PG_DUMP: ./scripts/recovery/pg_dump_18_ci.sh
-      ZTFL_TEST_PG_RESTORE: ./scripts/recovery/pg_restore_18_ci.sh
+      ZTFL_TEST_PG_DUMP: ${{ github.workspace }}/scripts/recovery/pg_dump_18_ci.sh
+      ZTFL_TEST_PG_RESTORE: ${{ github.workspace }}/scripts/recovery/pg_restore_18_ci.sh
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Start pinned S3-compatible test fixture
