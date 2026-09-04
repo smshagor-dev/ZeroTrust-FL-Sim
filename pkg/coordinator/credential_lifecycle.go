@@ -6,7 +6,6 @@ import (
 	"time"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
-	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -83,11 +82,11 @@ func (s *Service) RevokeRegistration(ctx context.Context, req *flv1.RevokeRegist
 	delete(s.pending, entry.NodeID)
 	delete(s.rates, entry.NodeID)
 	return &flv1.RevokeRegistrationResponse{
-		Accepted:           true,
-		TargetNodeId:       entry.NodeID,
-		RevokedGeneration:  entry.Generation,
-		RevokedAtUnix:      entry.RevokedAt.Unix(),
-		BlockedUntilUnix:   entry.ExpiresAt.Unix(),
+		Accepted:          true,
+		TargetNodeId:      entry.NodeID,
+		RevokedGeneration: entry.Generation,
+		RevokedAtUnix:     entry.RevokedAt.Unix(),
+		BlockedUntilUnix:  entry.ExpiresAt.Unix(),
 	}, nil
 }
 
@@ -102,5 +101,3 @@ func mapRegistrationRevocationError(err error) error {
 		return status.Error(codes.PermissionDenied, "registration could not be revoked")
 	}
 }
-
-var _ = ztsecurity.Registration{}
