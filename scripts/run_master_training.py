@@ -20,7 +20,7 @@ from typing import Any
 import run_fl_sim as base
 
 _BaseAsyncCoordinator = base.AsyncFederatedCoordinator
-_BaseObservableCoordinator = base.ObservableAsyncFederator
+_BaseObservableCoordinator = base.ObservableAsyncFederatedCoordinator
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "tmp" / "orchestrator"
@@ -63,7 +63,7 @@ def _state(active: bool) -> dict[str, Any]:
         "attack": _META.attack,
         "aggregator": _META.aggregator,
         "device": _META.device,
-        "benign_workers": _META.clients - _META.clients + (_META.clients - malicious),
+        "benign_workers": _META.clients - malicious,
         "malicious_workers": malicious,
         "rounds": _HISTORY[-100:],
         "logs": _LOGS[-24:],
@@ -73,8 +73,12 @@ def _state(active: bool) -> dict[str, Any]:
 def _write_state(*, active: bool) -> None:
     RUNTIME.mkdir(parents=True, exist_ok=True)
     tmp = STATE_FILE.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(_state(active), indent=2, sort_keys=True), encoding="utf-8")
+    tmp.write_text(json.dumps(_writeable_state(active), indent=2, sort_keys=True), encoding="utf-8")
     os.replace(tmp, STATE_FILE)
+
+
+def _writeable_state(active: bool) -> dict[str, Any]:
+    return _state(active)
 
 
 def _consume_stop_request() -> bool:
