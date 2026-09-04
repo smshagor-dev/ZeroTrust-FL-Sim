@@ -20,23 +20,48 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const defaultMaxUpdateBytes = 64 << 20
+const (
+	defaultMaxUpdateBytes       = 8 << 20
+	defaultMaxUpdatesPerMinute = 60
+	maxReportedSampleCount     = 10_000_000
+	networkWeightsFormat       = "application/x-npy-f32"
+)
 
 type Config struct {
-	LeaseTTL       time.Duration
-	MaxUpdateBytes int
-	InitialModel   *flv1.GlobalModel
+	LeaseTTL            time.Duration
+	MaxUpdateBytes      int
+	InitialModel        *flv1.GlobalModel
+	MinUpdates          int
+	MaxUpdatesPerMinute int
+}
+
+type pendingUpdate struct {
+	NodeID      string
+	UpdateID    string
+	Values      []float32
+	SampleCount uint64
+}
+
+type updateRateWindow struct {
+	StartedAt time.Time
+	Count     int
 }
 
 type Service struct {
 	flv1.UnimplementedCoordinatorServiceServer
 
-	registry       *ztsecurity.RegistrationStore
-	leaseTTL       time.Duration
-	maxUpdateBytes int
+	registry            *ztsecurity.RegistrationStore
+	leaseTTL            time.Duration
+	maxUpdateBytes      int
+	minUpdates          int
+	maxUpdatesPerMinute int
 
 	modelMu sync.RWMutex
 	model   *flv1.GlobalModel
+
+	roundMu sync.Mutex
+	pending map[string]pendingUpdate
+	rates   map[string]updateRateWindow
 }
 
 func NewService(registry *ztsecurity.RegistrationStore, cfg Config) (*Service, error) {
@@ -49,20 +74,43 @@ func NewService(registry *ztsecurity.RegistrationStore, cfg Config) (*Service, e
 	if cfg.MaxUpdateBytes <= 0 {
 		cfg.MaxUpdateBytes = defaultMaxUpdateBytes
 	}
+	if cfg.MinUpdates <= 0 {
+		cfg.MinUpdates = 1
+	}
+	if cfg.MaxUpdatesPerMinute <= 0 {
+		cfg.MaxUpdatesPerMinute = defaultMaxUpdatesPerMinute
+	}
 	if cfg.InitialModel == nil {
 		cfg.InitialModel = &flv1.GlobalModel{
 			ModelVersion:  "bootstrap",
 			RoundId:       0,
-			WeightsFormat: "application/x-zerotrust-tensors-v1",
+			WeightsFormat: networkWeightsFormat,
 			CreatedAtUnix: time.Now().UTC().Unix(),
 		}
 	}
+	if payload := cfg.InitialModel.GetWeightsPayload(); len(payload) > 0 {
+		if cfg.InitialModel.GetWeightsFormat() != networkWeightsFormat {
+			return nil, fmt.Errorf("initial model weights_format must be %q", networkWeightsFormat)
+		}
+		if _, err := decodeNPYFloat32(payload); err != nil {
+			return nil, fmt.Errorf("validate initial model payload: %w", err)
+		}
+		digest := sha256.Sum256(payload)
+		if len(cfg.InitialModel.GetSha256()) > 0 && !bytes.Equal(digest[:], cfg.InitialModel.GetSha256()) {
+			return nil, errors.New("initial model SHA-256 digest does not match payload")
+		}
+		cfg.InitialModel.Sha256 = digest[:]
+	}
 
 	return &Service{
-		registry:       registry,
-		leaseTTL:       cfg.LeaseTTL,
-		maxUpdateBytes: cfg.MaxUpdateBytes,
-		model:          proto.Clone(cfg.InitialModel).(*flv1.GlobalModel),
+		registry:            registry,
+		leaseTTL:            cfg.LeaseTTL,
+		maxUpdateBytes:      cfg.MaxUpdateBytes,
+		minUpdates:          cfg.MinUpdates,
+		maxUpdatesPerMinute: cfg.MaxUpdatesPerMinute,
+		model:               proto.Clone(cfg.InitialModel).(*flv1.GlobalModel),
+		pending:             make(map[string]pendingUpdate),
+		rates:               make(map[string]updateRateWindow),
 	}, nil
 }
 
@@ -102,6 +150,9 @@ func (s *Service) RegisterNode(ctx context.Context, req *flv1.RegisterNodeReques
 }
 
 func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*flv1.HeartbeatResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "heartbeat request is required")
+	}
 	identity, err := requireIdentityAndRegistration(ctx, s.registry, req.GetNodeId(), req.GetRegistrationId())
 	if err != nil {
 		return nil, err
@@ -143,8 +194,8 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	if len(req.GetWeightsPayload()) > s.maxUpdateBytes {
 		return nil, status.Errorf(codes.ResourceExhausted, "weights payload exceeds %d bytes", s.maxUpdateBytes)
 	}
-	if strings.TrimSpace(req.GetWeightsFormat()) == "" || len(req.GetWeightsFormat()) > 128 {
-		return nil, status.Error(codes.InvalidArgument, "weights_format is required and must be at most 128 characters")
+	if req.GetWeightsFormat() != networkWeightsFormat {
+		return nil, status.Errorf(codes.InvalidArgument, "weights_format must be %q", networkWeightsFormat)
 	}
 	if len(req.GetUpdateSha256()) != sha256.Size {
 		return nil, status.Error(codes.InvalidArgument, "update_sha256 must contain a 32-byte SHA-256 digest")
@@ -156,6 +207,18 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	if err := validateMetrics(req.GetMetrics()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	values, err := decodeNPYFloat32(req.GetWeightsPayload())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid model update payload: %v", err)
+	}
+
+	now := time.Now().UTC()
+	s.roundMu.Lock()
+	defer s.roundMu.Unlock()
+
+	if !s.allowUpdateLocked(req.GetNodeId(), now) {
+		return nil, status.Error(codes.ResourceExhausted, "worker update rate limit exceeded")
+	}
 
 	model := s.currentModel()
 	if req.GetBaseModelVersion() != model.GetModelVersion() {
@@ -164,17 +227,143 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	if req.GetRoundId() != model.GetRoundId() {
 		return nil, status.Errorf(codes.FailedPrecondition, "update round %d does not match current round %d", req.GetRoundId(), model.GetRoundId())
 	}
+	if _, exists := s.pending[req.GetNodeId()]; exists {
+		return nil, status.Error(codes.AlreadyRegistered, "worker already submitted an update for the current round")
+	}
+
+	currentValues, err := currentModelVector(model, len(values))
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 
 	updateID, err := secureIdentifier(24)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "could not create update identifier")
 	}
+	s.pending[req.GetNodeId()] = pendingUpdate{
+		NodeID:      req.GetNodeId(),
+		UpdateID:    updateID,
+		Values:      append([]float32(nil), values...),
+		SampleCount: req.GetMetrics().GetSampleCount(),
+	}
+
+	if len(s.pending) < s.minUpdates {
+		return &flv1.SubmitLocalUpdateResponse{
+			Accepted:            true,
+			UpdateId:            updateID,
+			Reason:              fmt.Sprintf("accepted; waiting for quorum (%d/%d)", len(s.pending), s.minUpdates),
+			CurrentModelVersion: model.GetModelVersion(),
+		}, nil
+	}
+
+	aggregated, err := aggregateWeightedUpdates(s.pending, len(currentValues))
+	if err != nil {
+		delete(s.pending, req.GetNodeId())
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	for index := range currentValues {
+		currentValues[index] += aggregated[index]
+		if math.IsNaN(float64(currentValues[index])) || math.IsInf(float64(currentValues[index]), 0) {
+			delete(s.pending, req.GetNodeId())
+			return nil, status.Error(codes.InvalidArgument, "aggregated model contains non-finite values")
+		}
+	}
+
+	payload, err := encodeNPYFloat32(currentValues)
+	if err != nil {
+		delete(s.pending, req.GetNodeId())
+		return nil, status.Error(codes.Internal, "could not encode aggregated global model")
+	}
+	modelDigest := sha256.Sum256(payload)
+	nextRound := model.GetRoundId() + 1
+	nextVersion := fmt.Sprintf("round-%d-%s", nextRound, hex.EncodeToString(modelDigest[:8]))
+	nextModel := &flv1.GlobalModel{
+		ModelVersion:  nextVersion,
+		RoundId:       nextRound,
+		WeightsPayload: payload,
+		WeightsFormat: networkWeightsFormat,
+		Sha256:         modelDigest[:],
+		CreatedAtUnix: now.Unix(),
+	}
+
+	s.modelMu.Lock()
+	s.model = nextModel
+	s.modelMu.Unlock()
+	clear(s.pending)
+
 	return &flv1.SubmitLocalUpdateResponse{
 		Accepted:            true,
 		UpdateId:            updateID,
-		Reason:              "accepted for aggregation",
-		CurrentModelVersion: model.GetModelVersion(),
+		Reason:              "accepted; round aggregated",
+		CurrentModelVersion: nextVersion,
 	}, nil
+}
+
+func (s *Service) allowUpdateLocked(nodeID string, now time.Time) bool {
+	window := s.rates[nodeID]
+	if window.StartedAt.IsZero() || now.Sub(window.StartedAt) >= time.Minute {
+		s.rates[nodeID] = updateRateWindow{StartedAt: now, Count: 1}
+		return true
+	}
+	if window.Count >= s.maxUpdatesPerMinute {
+		return false
+	}
+	window.Count++
+	s.ratess[nodeID] = window
+	return true
+}
+
+func currentModelVector(model *flv1.GlobalModel, expectedLength int) ([]float32, error) {
+	if expectedLength <= 0 {
+		return nil, errors.New("model update vector must not be empty")
+	}
+	if len(model.GetWeightsPayload()) == 0 {
+		return make([]float32, expectedLength), nil
+	}
+	if model.GetWeightsFormat() != networkWeightsFormat {
+		return nil, fmt.Errorf("current model uses unsupported weights format %q", model.GetWeightsFormat())
+	}
+	values, err := decodeNPYFloat32(model.GetWeightsPayload())
+	if err != nil {
+		return nil, fmt.Errorf("decode current global model: %w", err)
+	}
+	if len(values) != expectedLength {
+		return nil, fmt.Errorf("update vector length %d does not match global model length %d", expectedLength, len(values))
+	}
+	return values, nil
+}
+
+func aggregateWeightedUpdates(updates map[string]pendingUpdate, vectorLength int) ([]float32, error) {
+	if len(updates) == 0 || vectorLength <= 0 {
+		return nil, errors.New("cannot aggregate an empty update set")
+	}
+	sums := make([]float64, vectorLength)
+	var totalWeight float64
+	for _, update := range updates {
+		if len(update.Values) != vectorLength {
+			return nil, errors.New("pending update vector lengths do not match")
+		}
+		weight := float64(update.SampleCount)
+		if weight <= 0 {
+			return nil, errors.New("pending update has invalid sample count")
+		}
+		totalWeight += weight
+		for index, value := range update.Values {
+			sums[index] += float64(value) * weight
+		}
+	}
+	if totalWeight <= 0 || math.IsInf(totalWeight, 0) || math.IsNaN(totalWeight) {
+		return nil, errors.New("aggregate sample weight is invalid")
+	}
+	result := make([]float32, vectorLength)
+	for index := range result {
+		value := sums[index] / totalWeight
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil, errors.New("aggregated update contains non-finite values")
+		}
+		result[index] = float32(value)
+	}
+	return result, nil
 }
 
 func (s *Service) currentModel() *flv1.GlobalModel {
@@ -207,8 +396,8 @@ func validateMetrics(metrics *flv1.LocalUpdateMetrics) error {
 	if metrics.GetDynamicEpochs() == 0 {
 		return errors.New("dynamic_epochs must be greater than zero")
 	}
-	if metrics.GetSampleCount() == 0 {
-		return errors.New("sample_count must be greater than zero")
+	if metrics.GetSampleCount() == 0 || metrics.GetSampleCount() > maxReportedSampleCount {
+		return fmt.Errorf("sample_count must be between 1 and %d", maxReportedSampleCount)
 	}
 	if math.IsNaN(metrics.GetLoss()) || math.IsInf(metrics.GetLoss(), 0) {
 		return errors.New("loss must be finite")
