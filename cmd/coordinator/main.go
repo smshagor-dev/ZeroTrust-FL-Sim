@@ -35,6 +35,7 @@ func main() {
 		maxMessage          = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 8<<20), "maximum gRPC request and response size")
 		minUpdates          = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
 		maxUpdatesPerMinute = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
+		aggregationMethod   = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
 		pqcModeValue        = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
 		requirePQCIdentity  = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
 		metricsAddress      = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
@@ -106,6 +107,7 @@ func main() {
 		MaxUpdateBytes:      *maxMessage,
 		MinUpdates:          *minUpdates,
 		MaxUpdatesPerMinute: *maxUpdatesPerMinute,
+		AggregationMethod:   *aggregationMethod,
 	})
 	if err != nil {
 		logger.Error("configure coordinator service", "error", err)
@@ -151,6 +153,7 @@ func main() {
 			"otel_endpoint", *otelEndpoint,
 			"min_updates", *minUpdates,
 			"max_updates_per_minute", *maxUpdatesPerMinute,
+			"aggregation_method", *aggregationMethod,
 		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()

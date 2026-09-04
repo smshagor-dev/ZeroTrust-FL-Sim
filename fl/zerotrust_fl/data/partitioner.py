@@ -91,12 +91,15 @@ def dirichlet_partition(
     seed: int = 42,
     min_samples_per_client: int = 1,
     max_retries: int = 1024,
+    balanced: bool = True,
 ) -> dict[int, np.ndarray]:
-    """Partition indices by class using a symmetric Dirichlet distribution.
+    """Partition samples class-wise using symmetric Dirichlet draws.
 
-    Smaller ``alpha`` values produce stronger class skew. Every source sample is
-    assigned exactly once. Sampling is retried until each client receives at
-    least ``min_samples_per_client`` samples.
+    Smaller ``alpha`` values produce stronger class skew and every source sample
+    is assigned exactly once. ``balanced=True`` preserves the historical
+    ZeroTrust-FL behavior, which suppresses allocations to clients already above
+    the average target size. Set ``balanced=False`` for a conventional raw
+    class-wise Dirichlet partition without that balancing mask.
     """
 
     targets = extract_targets(dataset_or_targets)
@@ -118,8 +121,6 @@ def dirichlet_partition(
         client_indices: list[list[np.ndarray]] = [[] for _ in range(num_clients)]
         client_sizes = np.zeros(num_clients, dtype=np.int64)
 
-        # A fresh child seed makes retries deterministic while avoiding the same
-        # failed draw on each attempt.
         attempt_rng = np.random.default_rng(master_rng.integers(0, 2**63 - 1))
 
         for class_id in classes:
@@ -130,17 +131,16 @@ def dirichlet_partition(
                 np.full(num_clients, alpha, dtype=np.float64)
             )
 
-            # Mild balancing prevents one already-large client from consuming
-            # nearly all samples while retaining the requested Dirichlet skew.
-            average_target = len(targets) / num_clients
-            under_target = client_sizes < average_target
-            if np.any(under_target):
-                proportions *= under_target
-                total = proportions.sum()
-                if total > 0:
-                    proportions /= total
-                else:
-                    proportions = np.full(num_clients, 1.0 / num_clients)
+            if balanced:
+                average_target = len(targets) / num_clients
+                under_target = client_sizes < average_target
+                if np.any(under_target):
+                    proportions *= under_target
+                    total = proportions.sum()
+                    if total > 0:
+                        proportions /= total
+                    else:
+                        proportions = np.full(num_clients, 1.0 / num_clients)
 
             counts = attempt_rng.multinomial(len(class_indices), proportions)
             offsets = np.concatenate(([0], np.cumsum(counts)))
@@ -180,18 +180,33 @@ def partition_dataset(
     seed: int = 42,
     min_samples_per_client: int = 1,
 ) -> dict[int, np.ndarray]:
-    """Dispatch to IID or Dirichlet partitioning."""
+    """Dispatch to IID, balanced Dirichlet, or raw Dirichlet partitioning.
+
+    ``dirichlet``/``non_iid`` remain backwards-compatible aliases for the
+    balanced variant. Use ``dirichlet_raw`` when an unmodified class-wise
+    Dirichlet draw is required for experimental comparability.
+    """
 
     normalized = strategy.strip().lower().replace("-", "_")
     if normalized == "iid":
         return iid_partition(dataset_or_targets, num_clients, seed=seed)
-    if normalized in {"dirichlet", "non_iid", "noniid"}:
+    if normalized in {"dirichlet", "dirichlet_balanced", "non_iid", "noniid"}:
         return dirichlet_partition(
             dataset_or_targets,
             num_clients,
             alpha=alpha,
             seed=seed,
             min_samples_per_client=min_samples_per_client,
+            balanced=True,
+        )
+    if normalized in {"dirichlet_raw", "raw_dirichlet"}:
+        return dirichlet_partition(
+            dataset_or_targets,
+            num_clients,
+            alpha=alpha,
+            seed=seed,
+            min_samples_per_client=min_samples_per_client,
+            balanced=False,
         )
     raise ValueError(f"unsupported partition strategy: {strategy!r}")
 
