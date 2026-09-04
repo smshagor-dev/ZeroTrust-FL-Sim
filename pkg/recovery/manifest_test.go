@@ -17,7 +17,7 @@ func TestManifestRoundTripAndFileVerification(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, auditExportPath), []byte(""), 0o600); err != nil {
 		t.Fatalf("write audit fixture: %v", err)
 	}
-	artifactDigest := strings.Repeat("ab", 32)
+	artifactDigest := "5c6fd60a6ad0ce3fffdf2f2c61fbf1e9677f780c64a1ee33563bb2a40f29ef80"
 	artifactRelative := "artifacts/sha256/" + artifactDigest + ".npy"
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, artifactRelative)), 0o700); err != nil {
 		t.Fatalf("create artifact fixture directory: %v", err)
@@ -39,8 +39,9 @@ func TestManifestRoundTripAndFileVerification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("digest artifact fixture: %v", err)
 	}
-	artifact.SHA256 = artifactDigest
-	artifact.SizeBytes = int64(len(artifactPayload))
+	if artifact.SHA256 != artifactDigest || artifact.SizeBytes != int64(len(artifactPayload)) {
+		t.Fatalf("artifact digest fixture = %#v", artifact)
+	}
 
 	manifest := NewManifest(time.Date(2026, 9, 4, 20, 5, 0, 123456000, time.UTC))
 	manifest.Database = DatabaseManifest{
@@ -77,6 +78,9 @@ func TestManifestRoundTripAndFileVerification(t *testing.T) {
 	}
 	if err := VerifyFile(root, loaded.Database.Dump); err != nil {
 		t.Fatalf("verify dump file: %v", err)
+	}
+	if err := VerifyFile(root, loaded.Artifact.File); err != nil {
+		t.Fatalf("verify artifact file: %v", err)
 	}
 }
 
