@@ -36,7 +36,8 @@ func main() {
 		minUpdates          = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
 		maxUpdatesPerMinute = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
 		aggregationMethod   = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
-		stateFile           = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; empty keeps volatile state")
+		stateFile           = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; mutually exclusive with PostgreSQL")
+		postgresDSN         = flag.String("postgres-dsn", envString("ZTFL_POSTGRES_DSN", ""), "PostgreSQL DSN for durable coordinator state; mutually exclusive with state-file")
 		pqcModeValue        = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
 		requirePQCIdentity  = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
 		metricsAddress      = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
@@ -52,6 +53,10 @@ func main() {
 	}
 	if *maxUpdatesPerMinute <= 0 {
 		fmt.Fprintln(os.Stderr, "max-updates-per-minute must be positive")
+		os.Exit(2)
+	}
+	if *stateFile != "" && *postgresDSN != "" {
+		fmt.Fprintln(os.Stderr, "state-file and postgres-dsn are mutually exclusive")
 		os.Exit(2)
 	}
 
@@ -111,25 +116,35 @@ func main() {
 		AggregationMethod:   *aggregationMethod,
 	}
 	var service flv1.CoordinatorServiceServer
-	durableStateEnabled := *stateFile != ""
-	if durableStateEnabled {
-		stateStore, err := coordinator.NewFileStateStore(*stateFile)
-		if err != nil {
-			logger.Error("configure coordinator state store", "error", err)
+	stateBackend := "volatile"
+	switch {
+	case *postgresDSN != "":
+		storeContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		stateStore, storeErr := coordinator.NewPostgresStateStore(storeContext, *postgresDSN)
+		cancel()
+		if storeErr != nil {
+			logger.Error("configure PostgreSQL coordinator state store", "error", storeErr)
+			os.Exit(1)
+		}
+		defer stateStore.Close()
+		service, err = coordinator.NewDurableService(registry, serviceConfig, stateStore)
+		stateBackend = "postgres"
+	case *stateFile != "":
+		stateStore, storeErr := coordinator.NewFileStateStore(*stateFile)
+		if storeErr != nil {
+			logger.Error("configure filesystem coordinator state store", "error", storeErr)
 			os.Exit(1)
 		}
 		service, err = coordinator.NewDurableService(registry, serviceConfig, stateStore)
-		if err != nil {
-			logger.Error("recover durable coordinator state", "error", err)
-			os.Exit(1)
-		}
-	} else {
+		stateBackend = "filesystem"
+	default:
 		service, err = coordinator.NewService(registry, serviceConfig)
-		if err != nil {
-			logger.Error("configure coordinator service", "error", err)
-			os.Exit(1)
-		}
 	}
+	if err != nil {
+		logger.Error("configure or recover coordinator service", "state_backend", stateBackend, "error", err)
+		os.Exit(1)
+	}
+	durableStateEnabled := stateBackend != "volatile"
 
 	grpcServer := grpc.NewServer(
 		grpc.Creds(transportCreds),
@@ -172,6 +187,7 @@ func main() {
 			"max_updates_per_minute", *maxUpdatesPerMinute,
 			"aggregation_method", *aggregationMethod,
 			"durable_state", durableStateEnabled,
+			"state_backend", stateBackend,
 		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()
