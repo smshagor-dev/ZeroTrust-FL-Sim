@@ -28,28 +28,28 @@ func TestS3ArtifactStoreValidatesEndpointBucketPrefixAndCredentials(t *testing.T
 			name: "endpoint path",
 			cfg: S3ArtifactStoreConfig{
 				EndpointURL: "https://s3.example.test/path",
-				Bucket: "ztfl-models", AccessKeyID: "a", SecretAccessKey: "b",
+				Bucket:      "ztfl-models", AccessKeyID: "a", SecretAccessKey: "b",
 			},
 		},
 		{
 			name: "uppercase bucket",
 			cfg: S3ArtifactStoreConfig{
 				EndpointURL: "https://s3.example.test",
-				Bucket: "ZTFL-models", AccessKeyID: "a", SecretAccessKey: "b",
+				Bucket:      "ZTFL-models", AccessKeyID: "a", SecretAccessKey: "b",
 			},
 		},
 		{
 			name: "noncanonical prefix",
 			cfg: S3ArtifactStoreConfig{
 				EndpointURL: "https://s3.example.test",
-				Bucket: "ztfl-models", Prefix: "models/../escape", AccessKeyID: "a", SecretAccessKey: "b",
+				Bucket:      "ztfl-models", Prefix: "models/../escape", AccessKeyID: "a", SecretAccessKey: "b",
 			},
 		},
 		{
 			name: "missing credentials",
 			cfg: S3ArtifactStoreConfig{
 				EndpointURL: "https://s3.example.test",
-				Bucket: "ztfl-models",
+				Bucket:      "ztfl-models",
 			},
 		},
 	}
