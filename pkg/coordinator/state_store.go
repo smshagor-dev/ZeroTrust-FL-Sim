@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
@@ -27,6 +28,14 @@ const (
 
 var ErrStateNotFound = errors.New("coordinator state not found")
 
+type StatePolicy struct {
+	LeaseTTL            time.Duration `json:"lease_ttl_ns"`
+	MaxUpdateBytes      int           `json:"max_update_bytes"`
+	MinUpdates          int           `json:"min_updates"`
+	MaxUpdatesPerMinute int           `json:"max_updates_per_minute"`
+	AggregationMethod   string        `json:"aggregation_method"`
+}
+
 type PersistedUpdate struct {
 	NodeID      string    `json:"node_id"`
 	UpdateID    string    `json:"update_id"`
@@ -34,10 +43,24 @@ type PersistedUpdate struct {
 	SampleCount uint64    `json:"sample_count"`
 }
 
+type PersistedNonce struct {
+	Key    string    `json:"key"`
+	SeenAt time.Time `json:"seen_at"`
+}
+
+type PersistedRateWindow struct {
+	NodeID    string    `json:"node_id"`
+	StartedAt time.Time `json:"started_at"`
+	Count     int       `json:"count"`
+}
+
 type StateSnapshot struct {
+	Policy        StatePolicy
 	Model         *flv1.GlobalModel
 	Pending       []PersistedUpdate
 	Registrations []ztsecurity.Registration
+	Nonces        []PersistedNonce
+	RateWindows   []PersistedRateWindow
 }
 
 type StateStore interface {
@@ -52,9 +75,12 @@ type FileStateStore struct {
 
 type diskState struct {
 	SchemaVersion int                       `json:"schema_version"`
+	Policy        StatePolicy               `json:"policy"`
 	ModelProto    []byte                    `json:"model_proto"`
 	Pending       []PersistedUpdate         `json:"pending_updates"`
 	Registrations []ztsecurity.Registration `json:"registrations"`
+	Nonces        []PersistedNonce          `json:"replay_nonces"`
+	RateWindows   []PersistedRateWindow     `json:"rate_windows"`
 }
 
 func NewFileStateStore(path string) (*FileStateStore, error) {
@@ -132,9 +158,12 @@ func (s *FileStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 		return StateSnapshot{}, fmt.Errorf("decode persisted global model: %w", err)
 	}
 	snapshot := StateSnapshot{
+		Policy:        encoded.Policy,
 		Model:         model,
 		Pending:       clonePersistedUpdates(encoded.Pending),
 		Registrations: append([]ztsecurity.Registration(nil), encoded.Registrations...),
+		Nonces:        append([]PersistedNonce(nil), encoded.Nonces...),
+		RateWindows:   append([]PersistedRateWindow(nil), encoded.RateWindows...),
 	}
 	if err := validateStateSnapshot(snapshot); err != nil {
 		return StateSnapshot{}, fmt.Errorf("validate coordinator state: %w", err)
@@ -159,13 +188,20 @@ func (s *FileStateStore) Commit(ctx context.Context, snapshot StateSnapshot) err
 	}
 	pending := clonePersistedUpdates(snapshot.Pending)
 	registrations := append([]ztsecurity.Registration(nil), snapshot.Registrations...)
+	nonces := append([]PersistedNonce(nil), snapshot.Nonces...)
+	rateWindows := append([]PersistedRateWindow(nil), snapshot.RateWindows...)
 	sort.Slice(pending, func(i, j int) bool { return pending[i].NodeID < pending[j].NodeID })
 	sort.Slice(registrations, func(i, j int) bool { return registrations[i].NodeID < registrations[j].NodeID })
+	sort.Slice(nonces, func(i, j int) bool { return nonces[i].Key < nonces[j].Key })
+	sort.Slice(rateWindows, func(i, j int) bool { return rateWindows[i].NodeID < rateWindows[j].NodeID })
 	encoded := diskState{
 		SchemaVersion: coordinatorStateSchemaVersion,
+		Policy:        snapshot.Policy,
 		ModelProto:    modelBytes,
 		Pending:       pending,
 		Registrations: registrations,
+		Nonces:        nonces,
+		RateWindows:   rateWindows,
 	}
 	data, err := json.MarshalIndent(encoded, "", "  ")
 	if err != nil {
@@ -253,6 +289,26 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 }
 
 func validateStateSnapshot(snapshot StateSnapshot) error {
+	if snapshot.Policy.LeaseTTL <= 0 {
+		return errors.New("state policy registration lease must be positive")
+	}
+	if snapshot.Policy.MaxUpdateBytes <= 0 {
+		return errors.New("state policy max_update_bytes must be positive")
+	}
+	if snapshot.Policy.MinUpdates <= 0 {
+		return errors.New("state policy min_updates must be positive")
+	}
+	if snapshot.Policy.MaxUpdatesPerMinute <= 0 {
+		return errors.New("state policy max_updates_per_minute must be positive")
+	}
+	normalizedAggregation, err := normalizeAggregationMethod(snapshot.Policy.AggregationMethod)
+	if err != nil {
+		return err
+	}
+	if snapshot.Policy.AggregationMethod != normalizedAggregation {
+		return fmt.Errorf("state policy aggregation_method must use canonical value %q", normalizedAggregation)
+	}
+
 	if snapshot.Model == nil {
 		return errors.New("global model is required")
 	}
@@ -278,6 +334,9 @@ func validateStateSnapshot(snapshot StateSnapshot) error {
 		return errors.New("global model without payload must not contain a SHA-256 digest")
 	}
 
+	if len(snapshot.Pending) >= snapshot.Policy.MinUpdates {
+		return fmt.Errorf("persisted pending update count %d must remain below quorum %d", len(snapshot.Pending), snapshot.Policy.MinUpdates)
+	}
 	seenUpdates := make(map[string]struct{}, len(snapshot.Pending))
 	pendingVectorLength := expectedVectorLength
 	for _, update := range snapshot.Pending {
@@ -321,13 +380,41 @@ func validateStateSnapshot(snapshot StateSnapshot) error {
 		}
 		seenRegistrations[registration.NodeID] = struct{}{}
 	}
+
+	seenNonces := make(map[string]struct{}, len(snapshot.Nonces))
+	for _, nonce := range snapshot.Nonces {
+		if strings.TrimSpace(nonce.Key) == "" || nonce.SeenAt.IsZero() {
+			return errors.New("persisted replay nonce is incomplete")
+		}
+		if _, exists := seenNonces[nonce.Key]; exists {
+			return fmt.Errorf("duplicate persisted replay nonce %q", nonce.Key)
+		}
+		seenNonces[nonce.Key] = struct{}{}
+	}
+
+	seenRateWindows := make(map[string]struct{}, len(snapshot.RateWindows))
+	for _, window := range snapshot.RateWindows {
+		if strings.TrimSpace(window.NodeID) == "" || window.StartedAt.IsZero() {
+			return errors.New("persisted rate window is incomplete")
+		}
+		if window.Count <= 0 || window.Count > snapshot.Policy.MaxUpdatesPerMinute {
+			return fmt.Errorf("persisted rate window for %q has invalid count %d", window.NodeID, window.Count)
+		}
+		if _, exists := seenRateWindows[window.NodeID]; exists {
+			return fmt.Errorf("duplicate persisted rate window for node %q", window.NodeID)
+		}
+		seenRateWindows[window.NodeID] = struct{}{}
+	}
 	return nil
 }
 
 func cloneStateSnapshot(snapshot StateSnapshot) StateSnapshot {
 	cloned := StateSnapshot{
+		Policy:        snapshot.Policy,
 		Pending:       clonePersistedUpdates(snapshot.Pending),
 		Registrations: append([]ztsecurity.Registration(nil), snapshot.Registrations...),
+		Nonces:        append([]PersistedNonce(nil), snapshot.Nonces...),
+		RateWindows:   append([]PersistedRateWindow(nil), snapshot.RateWindows...),
 	}
 	if snapshot.Model != nil {
 		cloned.Model = proto.Clone(snapshot.Model).(*flv1.GlobalModel)
