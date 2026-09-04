@@ -22,7 +22,7 @@ Release gates:
 
 ## v0.6 — Durable coordinator state
 
-Foundation status: issue #38 introduced the schema-versioned atomic filesystem `StateStore` and restart-recovery gate. Issue #42 added the PostgreSQL `StateStore`, explicit database migrations, transactional whole-snapshot commits, PostgreSQL CI coverage, and backup/restore documentation. Issue #44 adds content-addressed S3-compatible global-model artifacts with PostgreSQL metadata references, legacy inline-row migration, and object-integrity recovery checks. These slices establish durable single-coordinator metadata/model recovery but do **not** complete v0.6; durable audit export, stronger backup/restore automation, and credential-rotation lifecycle remain required.
+Foundation status: issue #38 introduced the schema-versioned atomic filesystem `StateStore` and restart-recovery gate. Issue #42 added the PostgreSQL `StateStore`, explicit database migrations, transactional whole-snapshot commits, PostgreSQL CI coverage, and backup/restore documentation. Issue #44 added content-addressed S3-compatible global-model artifacts with PostgreSQL metadata references, legacy inline-row migration, and object-integrity recovery checks. Issue #46 adds a PostgreSQL append-only-by-application-contract, hash-chained audit trail for successful recovery-critical transitions plus a verified bounded NDJSON exporter. These slices establish durable single-coordinator metadata/model recovery and durable transition audit export but do **not** complete v0.6; stronger backup/restore automation and explicit credential-rotation/revocation lifecycle remain required.
 
 Release gates:
 
@@ -33,7 +33,7 @@ Release gates:
 - durable audit event export
 - explicit lease and credential-rotation lifecycle
 
-Target reference stack: PostgreSQL for durable metadata, an S3-compatible object store for model artifacts, and optional Redis for distributed leases/rate limits. Implementations must keep storage interfaces replaceable.
+Target reference stack: PostgreSQL for durable metadata and durable transition audit records, an S3-compatible object store for model artifacts, and optional Redis for distributed leases/rate limits. Implementations must keep storage interfaces replaceable.
 
 ## v0.7 — Stable protocol and deployment surface
 

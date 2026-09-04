@@ -50,9 +50,9 @@ func TestPostgresStateStoreRoundTripMigrationAndReconnect(t *testing.T) {
 		store.Close()
 		t.Fatalf("count PostgreSQL migrations: %v", err)
 	}
-	if migrationCount != 2 {
+	if migrationCount != 3 {
 		store.Close()
-		t.Fatalf("migration count = %d, want 2", migrationCount)
+		t.Fatalf("migration count = %d, want 3", migrationCount)
 	}
 
 	snapshot := testStateSnapshot(t)
@@ -306,6 +306,9 @@ func resetPostgresStateTables(t *testing.T, ctx context.Context, dsn string) {
 		t.Fatalf("connect PostgreSQL for reset: %v", err)
 	}
 	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx, `DROP TABLE IF EXISTS ztfl_audit_events`); err != nil {
+		t.Fatalf("drop PostgreSQL audit events table: %v", err)
+	}
 	if _, err := conn.Exec(ctx, `DROP TABLE IF EXISTS ztfl_coordinator_state`); err != nil {
 		t.Fatalf("drop PostgreSQL coordinator state table: %v", err)
 	}
