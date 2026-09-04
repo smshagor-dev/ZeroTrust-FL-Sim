@@ -29,6 +29,9 @@ func TestFileStateStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
+	if loaded.Policy != snapshot.Policy {
+		t.Fatalf("loaded policy = %#v, want %#v", loaded.Policy, snapshot.Policy)
+	}
 	if !proto.Equal(loaded.Model, snapshot.Model) {
 		t.Fatalf("loaded model = %v, want %v", loaded.Model, snapshot.Model)
 	}
@@ -37,6 +40,12 @@ func TestFileStateStoreRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Registrations) != 1 || loaded.Registrations[0].RegistrationID != "registration-a" {
 		t.Fatalf("unexpected registrations: %#v", loaded.Registrations)
+	}
+	if len(loaded.Nonces) != 1 || loaded.Nonces[0].Key != "worker-a:00112233445566778899aabbccddeeff" {
+		t.Fatalf("unexpected replay nonces: %#v", loaded.Nonces)
+	}
+	if len(loaded.RateWindows) != 1 || loaded.RateWindows[0].Count != 2 {
+		t.Fatalf("unexpected rate windows: %#v", loaded.RateWindows)
 	}
 
 	info, err := os.Stat(store.path)
@@ -94,7 +103,7 @@ func TestFileStateStoreRejectsSymlink(t *testing.T) {
 	}
 }
 
-func TestDurableServiceRecoversModelPendingAndRegistrationState(t *testing.T) {
+func TestDurableServiceRecoversModelPendingRegistrationAndReplayState(t *testing.T) {
 	store, err := NewFileStateStore(filepath.Join(t.TempDir(), "coordinator-state.json"))
 	if err != nil {
 		t.Fatalf("create state store: %v", err)
@@ -120,6 +129,12 @@ func TestDurableServiceRecoversModelPendingAndRegistrationState(t *testing.T) {
 	if len(registrations) != 1 || registrations[0].NodeID != "worker-a" {
 		t.Fatalf("recovered registrations = %#v", registrations)
 	}
+	if len(service.service.nonces) != 1 {
+		t.Fatalf("recovered nonce cache = %#v", service.service.nonces)
+	}
+	if service.service.rates["worker-a"].Count != 2 {
+		t.Fatalf("recovered rate windows = %#v", service.service.rates)
+	}
 }
 
 func TestDurableServiceInitializesMissingState(t *testing.T) {
@@ -138,11 +153,14 @@ func TestDurableServiceInitializesMissingState(t *testing.T) {
 	if loaded.Model.GetModelVersion() != "bootstrap" || loaded.Model.GetRoundId() != 0 {
 		t.Fatalf("initialized model = %q round %d", loaded.Model.GetModelVersion(), loaded.Model.GetRoundId())
 	}
+	if loaded.Policy.MinUpdates != 1 || loaded.Policy.AggregationMethod != "median" {
+		t.Fatalf("initialized policy = %#v", loaded.Policy)
+	}
 }
 
 func TestDurableServiceFailsClosedOnInvalidState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "coordinator-state.json")
-	if err := os.WriteFile(path, []byte(`{"schema_version":999,"model_proto":"AA==","pending_updates":[],"registrations":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema_version":999}`), 0o600); err != nil {
 		t.Fatalf("write invalid state: %v", err)
 	}
 	store, err := NewFileStateStore(path)
@@ -154,6 +172,19 @@ func TestDurableServiceFailsClosedOnInvalidState(t *testing.T) {
 	}
 }
 
+func TestDurableServiceRejectsPolicyDrift(t *testing.T) {
+	store, err := NewFileStateStore(filepath.Join(t.TempDir(), "coordinator-state.json"))
+	if err != nil {
+		t.Fatalf("create state store: %v", err)
+	}
+	if err := store.Commit(context.Background(), testStateSnapshot(t)); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	if _, err := NewDurableService(ztsecurity.NewRegistrationStore(), Config{MinUpdates: 3}, store); err == nil {
+		t.Fatal("durable service accepted quorum-policy drift")
+	}
+}
+
 func testStateSnapshot(t *testing.T) StateSnapshot {
 	t.Helper()
 	payload, err := encodeNPYFloat32([]float32{1.5, -2.0})
@@ -161,14 +192,22 @@ func testStateSnapshot(t *testing.T) StateSnapshot {
 		t.Fatalf("encode model: %v", err)
 	}
 	digest := sha256.Sum256(payload)
+	now := time.Now().UTC()
 	return StateSnapshot{
+		Policy: StatePolicy{
+			LeaseTTL:            5 * time.Minute,
+			MaxUpdateBytes:      defaultMaxUpdateBytes,
+			MinUpdates:          2,
+			MaxUpdatesPerMinute: defaultMaxUpdatesPerMinute,
+			AggregationMethod:   "median",
+		},
 		Model: &flv1.GlobalModel{
 			ModelVersion:   "round-7-test",
 			RoundId:        7,
 			WeightsPayload: payload,
 			WeightsFormat:  networkWeightsFormat,
 			Sha256:         digest[:],
-			CreatedAtUnix:  time.Now().UTC().Unix(),
+			CreatedAtUnix:  now.Unix(),
 		},
 		Pending: []PersistedUpdate{
 			{
@@ -184,8 +223,14 @@ func testStateSnapshot(t *testing.T) StateSnapshot {
 				Role:                   "edge-worker",
 				CertificateFingerprint: "sha256:test-worker-a",
 				RegistrationID:         "registration-a",
-				ExpiresAt:              time.Now().UTC().Add(time.Hour),
+				ExpiresAt:              now.Add(time.Hour),
 			},
+		},
+		Nonces: []PersistedNonce{
+			{Key: "worker-a:00112233445566778899aabbccddeeff", SeenAt: now},
+		},
+		RateWindows: []PersistedRateWindow{
+			{NodeID: "worker-a", StartedAt: now, Count: 2},
 		},
 	}
 }
