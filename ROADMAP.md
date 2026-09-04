@@ -22,6 +22,8 @@ Release gates:
 
 ## v0.6 — Durable coordinator state
 
+Foundation status: issue #38 introduces a schema-versioned, atomic filesystem `StateStore` reference backend and Docker restart-recovery gate. This establishes the coordinator recovery contract but does **not** complete v0.6; PostgreSQL/S3, migrations, durable audit export, backup tooling, and credential-rotation lifecycle remain required.
+
 Release gates:
 
 - persistent experiment, round, model-version, registration, and update metadata
