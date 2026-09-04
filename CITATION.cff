@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use ZeroTrust-FL-Sim in research, please cite the software and the exact version or commit used."
+title: "ZeroTrust-FL-Sim"
+type: software
+version: "0.4.0"
+authors:
+  - family-names: "Shagor"
+    given-names: "Shahanur Islam"
+repository-code: "https://github.com/smshagor-dev/ZeroTrust-FL-Sim"
+url: "https://github.com/smshagor-dev/ZeroTrust-FL-Sim"
+license: Apache-2.0
+abstract: >
+  A reproducible zero-trust federated-learning security and resilience
+  simulation platform covering non-IID data, malicious clients,
+  Byzantine-robust aggregation, differential privacy, CKKS aggregation,
+  post-quantum transport, acceleration, chaos engineering, and observability.
+keywords:
+  - federated learning
+  - zero trust
+  - Byzantine robustness
+  - differential privacy
+  - homomorphic encryption
+  - post-quantum cryptography
+  - adversarial machine learning
+  - chaos engineering
+  - reproducible research

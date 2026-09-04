@@ -1,2 +1,11 @@
+include LICENSE
+include NOTICE
+include README.md
+include CONTRIBUTING.md
+include CODE_OF_CONDUCT.md
+include SECURITY.md
+include SUPPORT.md
+include CITATION.cff
+include CHANGELOG.md
 include pyproject.toml
 recursive-include cpp CMakeLists.txt *.cpp *.cu *.hpp

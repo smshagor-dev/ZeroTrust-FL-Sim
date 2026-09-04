@@ -1,0 +1,56 @@
+name: Research / reproducibility report
+description: Report a result you cannot reproduce or a measurement inconsistency
+title: "[Reproducibility]: "
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Exact commit / version
+      placeholder: Full commit SHA preferred
+    validations:
+      required: true
+  - type: textarea
+    id: claim
+    attributes:
+      label: Result or behavior being reproduced
+      description: Point to the README/docs/benchmark command or describe the expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command / procedure
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: experiment
+    attributes:
+      label: Experiment configuration
+      description: Dataset, seeds, partition/Dirichlet alpha, clients, malicious fraction, attack settings, Byzantine bound, aggregator/backend, privacy/CKKS/PQC settings, chaos profile, and round count as applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Hardware and software environment
+      description: CPU/GPU, OS, Python/PyTorch/Go/CMake/compiler/CUDA, SIMD/OpenMP, and relevant component versions.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed result
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result and source
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Sanitized logs / benchmark artifacts
+      description: Do not attach secrets, private keys, credentials, or personal data.

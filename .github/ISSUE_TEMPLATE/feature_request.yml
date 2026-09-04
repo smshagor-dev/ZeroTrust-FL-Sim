@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a focused improvement or research capability
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem should this solve, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, API, experiment, or architecture you propose.
+    validations:
+      required: true
+  - type: textarea
+    id: assumptions
+    attributes:
+      label: Assumptions and security/research impact
+      description: Note changes to threat models, privacy assumptions, fault bounds, reproducibility, compatibility, or performance.
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Explain how the change can be tested or benchmarked reproducibly.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and pull requests for similar proposals.
+          required: true
+        - label: I can keep the proposed behavior within an authorized research/test environment.
+          required: true
