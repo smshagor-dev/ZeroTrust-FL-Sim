@@ -962,6 +962,9 @@ def install_signal_handlers(manager: ProcessManager) -> None:
         except ValueError:
             name = str(signum)
         manager.request_shutdown(f"received {name}; shutting down")
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGINT, _handle)
     if hasattr(signal, "SIGTERM"):
