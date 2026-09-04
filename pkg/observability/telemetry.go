@@ -25,11 +25,11 @@ import (
 
 // Config controls coordinator telemetry endpoints.
 type Config struct {
-	ServiceName   string
-	InstanceID    string
-	MetricsAddr   string
-	OTLPEndpoint  string
-	OTLPInsecure  bool
+	ServiceName  string
+	InstanceID   string
+	MetricsAddr  string
+	OTLPEndpoint string
+	OTLPInsecure bool
 }
 
 // Runtime owns the coordinator trace provider, Prometheus registry, and metrics server.
