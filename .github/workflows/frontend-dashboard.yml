@@ -12,7 +12,7 @@ on:
     paths:
       - "frontend/**"
       - "main.py"
-      - "\scripts/run_master_training.py"
+      - "scripts/run_master_training.py"
       - ".github/workflows/frontend-dashboard.yml"
 
 permissions:
