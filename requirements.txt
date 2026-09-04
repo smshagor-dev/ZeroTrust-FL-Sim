@@ -10,7 +10,7 @@ protobuf>=7.35,<8.0
 
 # Configuration and validation
 PyYAML>=6.0,<7.0
-pydantic>=2.10,<3.0
+pydantic>=2.13.5,<3.0
 
 # Security
 cryptography>=45,<50
