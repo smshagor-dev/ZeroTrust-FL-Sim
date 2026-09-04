@@ -16,7 +16,7 @@ func (s *DurableService) commitOrRollbackTransition(
 	events []AuditEvent,
 ) error {
 	var commitErr error
-	if audited, ok := s.store.(auditedStateStore); ok && len(events) > 0 {
+	if audited, ok := s.store.(auditedStateStore); ok {
 		commitErr = audited.CommitWithAudit(ctx, after, events)
 	} else {
 		commitErr = s.store.Commit(ctx, after)
@@ -28,7 +28,13 @@ func (s *DurableService) commitOrRollbackTransition(
 	if restoreErr := s.restoreSnapshot(before); restoreErr != nil {
 		return status.Errorf(codes.Internal, "durable %s commit failed and in-memory rollback failed: %v", operation, restoreErr)
 	}
-	if rollbackErr := s.store.Commit(context.Background(), before); rollbackErr != nil {
+	var rollbackErr error
+	if audited, ok := s.store.(auditedStateStore); ok {
+		rollbackErr = audited.CommitWithAudit(context.Background(), before, nil)
+	} else {
+		rollbackErr = s.store.Commit(context.Background(), before)
+	}
+	if rollbackErr != nil {
 		return status.Errorf(codes.Internal, "durable %s commit failed and persistent rollback failed: %v", operation, rollbackErr)
 	}
 	return status.Errorf(codes.Internal, "durable %s commit failed; previous state restored", operation)
@@ -36,7 +42,7 @@ func (s *DurableService) commitOrRollbackTransition(
 
 func (s *DurableService) commitCurrentStateWithAudit(ctx context.Context, events []AuditEvent) error {
 	snapshot := s.captureSnapshot()
-	if audited, ok := s.store.(auditedStateStore); ok && len(events) > 0 {
+	if audited, ok := s.store.(auditedStateStore); ok {
 		return audited.CommitWithAudit(ctx, snapshot, events)
 	}
 	return s.store.Commit(ctx, snapshot)
