@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	postgresTestDSNEnv        = "ZTFL_TEST_POSTGRES_DSN"
-	s3TestEndpointEnv         = "ZTFL_TEST_S3_ENDPOINT"
-	s3TestBucketEnv           = "ZTFL_TEST_S3_BUCKET"
-	s3TestAccessKeyIDEnv      = "ZTFL_TEST_S3_ACCESS_KEY_ID"
-	s3TestSecretAccessKeyEnv  = "ZTFL_TEST_S3_SECRET_ACCESS_KEY"
+	postgresTestDSNEnv       = "ZTFL_TEST_POSTGRES_DSN"
+	s3TestEndpointEnv        = "ZTFL_TEST_S3_ENDPOINT"
+	s3TestBucketEnv          = "ZTFL_TEST_S3_BUCKET"
+	s3TestAccessKeyIDEnv     = "ZTFL_TEST_S3_ACCESS_KEY_ID"
+	s3TestSecretAccessKeyEnv = "ZTFL_TEST_S3_SECRET_ACCESS_KEY"
 )
 
 func TestPostgresStateStoreRejectsEmptyDSN(t *testing.T) {
