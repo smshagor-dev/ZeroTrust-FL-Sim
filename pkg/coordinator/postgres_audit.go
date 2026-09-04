@@ -23,9 +23,6 @@ type auditedStateStore interface {
 }
 
 func (s *PostgresStateStore) CommitWithAudit(ctx context.Context, snapshot StateSnapshot, events []AuditEvent) error {
-	if len(events) == 0 {
-		return s.Commit(ctx, snapshot)
-	}
 	if s == nil || s.pool == nil {
 		return errors.New("PostgreSQL state store is nil")
 	}
@@ -70,21 +67,21 @@ func (s *PostgresStateStore) CommitWithAudit(ctx context.Context, snapshot State
 	if err != nil {
 		return fmt.Errorf("encode PostgreSQL policy: %w", err)
 	}
-	pendingJSON, err := json.Marshal(canonical.Pending)
+	pendingJSON, err := marshalPostgresStateArray(canonical.Pending, "pending updates")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL pending updates: %w", err)
+		return err
 	}
-	registrationsJSON, err := json.Marshal(canonical.Registrations)
+	registrationsJSON, err := marshalPostgresStateArray(canonical.Registrations, "registrations")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL registrations: %w", err)
+		return err
 	}
-	noncesJSON, err := json.Marshal(canonical.Nonces)
+	noncesJSON, err := marshalPostgresStateArray(canonical.Nonces, "replay nonces")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL replay nonces: %w", err)
+		return err
 	}
-	rateWindowsJSON, err := json.Marshal(canonical.RateWindows)
+	rateWindowsJSON, err := marshalPostgresStateArray(canonical.RateWindows, "rate windows")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL rate windows: %w", err)
+		return err
 	}
 
 	var artifactBucket any
@@ -155,6 +152,17 @@ func (s *PostgresStateStore) CommitWithAudit(ctx context.Context, snapshot State
 		return fmt.Errorf("commit PostgreSQL audited state transaction: %w", err)
 	}
 	return nil
+}
+
+func marshalPostgresStateArray[T any](values []T, field string) ([]byte, error) {
+	if len(values) == 0 {
+		return []byte("[]"), nil
+	}
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("encode PostgreSQL %s: %w", field, err)
+	}
+	return encoded, nil
 }
 
 func appendAuditEventsTx(ctx context.Context, tx pgx.Tx, events []AuditEvent) error {
