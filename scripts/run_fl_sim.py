@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -21,7 +22,18 @@ from zerotrust_fl.engine import (
     WorkerConfig,
     WorkerSpec,
 )
+from zerotrust_fl.observability import (
+    ObservableAsyncFederatedCoordinator,
+    TelemetryRuntime,
+)
 from zerotrust_fl.privacy import LocalDPConfig, RDPAccountant
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,9 +58,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--malicious-fraction", type=float, default=0.2)
     parser.add_argument(
         "--attack",
-        choices=["none", "label_flip", "gaussian", "sign_flip", "adaptive"],
+        choices=["none", "label_flip", "gaussian", "sign_flip", "adaptive", "collusion"],
         default="sign_flip",
     )
+    parser.add_argument("--collusion-scale", type=float, default=8.0)
+    parser.add_argument("--collusion-seed", type=int, default=20_271)
     parser.add_argument(
         "--aggregator",
         choices=["mean", "krum", "multi_krum", "trimmed_mean", "median"],
@@ -93,6 +107,29 @@ def parse_args() -> argparse.Namespace:
         "--dp-adjacency",
         choices=["replace", "add_remove"],
         default="replace",
+    )
+    parser.add_argument(
+        "--telemetry",
+        action=argparse.BooleanOptionalAction,
+        default=_env_flag("ZTFL_TELEMETRY_ENABLED", False),
+    )
+    parser.add_argument(
+        "--metrics-host",
+        default=os.getenv("ZTFL_METRICS_HOST", "0.0.0.0"),
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=int(os.getenv("ZTFL_METRICS_PORT", "9466")),
+    )
+    parser.add_argument(
+        "--otel-endpoint",
+        default=os.getenv("ZTFL_OTEL_ENDPOINT", ""),
+    )
+    parser.add_argument(
+        "--otel-insecure",
+        action=argparse.BooleanOptionalAction,
+        default=_env_flag("ZTFL_OTEL_INSECURE", True),
     )
     return parser.parse_args()
 
@@ -213,6 +250,13 @@ def main() -> None:
             )
         )
 
+    if args.attack == "collusion" and malicious_count * 2 >= min_results:
+        print(
+            "WARNING: colluding Byzantine population is at or above 50% of the "
+            "required quorum; this deliberately exceeds the classical Krum fault "
+            "assumption and is a stress test, not a guaranteed-defense regime."
+        )
+
     if local_dp.enabled:
         accountant = RDPAccountant(local_dp, releases=args.rounds)
         epsilon, optimal_order = accountant.epsilon()
@@ -235,15 +279,40 @@ def main() -> None:
             )
         )
 
-    coordinator = AsyncFederatedCoordinator(
-        dataset=train_dataset,
-        model_spec=model_spec,
-        workers=workers,
-        simulation=simulation,
-        aggregation=aggregation,
-        evaluation_dataset=test_dataset,
+    telemetry = None
+    coordinator_cls: type[AsyncFederatedCoordinator] = AsyncFederatedCoordinator
+    if args.telemetry:
+        telemetry = TelemetryRuntime(
+            service_name="zerotrust-fl-simulator",
+            instance_id=f"sim-{os.getpid()}",
+            metrics_host=args.metrics_host,
+            metrics_port=args.metrics_port,
+            otlp_endpoint=args.otel_endpoint,
+            otlp_insecure=args.otel_insecure,
+        )
+        coordinator_cls = ObservableAsyncFederatedCoordinator
+
+    coordinator_kwargs = {
+        "dataset": train_dataset,
+        "model_spec": model_spec,
+        "workers": workers,
+        "simulation": simulation,
+        "aggregation": aggregation,
+        "evaluation_dataset": test_dataset,
+    }
+    coordinator = (
+        ObservableAsyncFederatedCoordinator(
+            **coordinator_kwargs,
+            telemetry=telemetry,
+        )
+        if telemetry is not None
+        else coordinator_cls(**coordinator_kwargs)
     )
-    summary = coordinator.run()
+    try:
+        summary = coordinator.run()
+    finally:
+        if telemetry is not None:
+            telemetry.shutdown()
 
     print("\nRound metrics:")
     for metrics in summary.rounds:
@@ -289,6 +358,13 @@ def make_attack_config(args: argparse.Namespace, client_id: int) -> AttackConfig
             kind="adaptive",
             adaptive_scale=8.0,
             adaptive_max_norm_ratio=1.0,
+            **common,
+        )
+    if args.attack == "collusion":
+        return AttackConfig(
+            kind="collusion",
+            collusion_scale=args.collusion_scale,
+            collusion_seed=args.collusion_seed,
             **common,
         )
     return AttackConfig(kind="none", **common)
