@@ -23,7 +23,9 @@ FROM alpine:3.24 AS runtime
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 ztfl \
-    && adduser -S -D -H -u 10001 -G ztfl ztfl
+    && adduser -S -D -H -u 10001 -G ztfl ztfl \
+    && mkdir -p /var/lib/zerotrust-fl \
+    && chown -R 10001:10001 /var/lib/zerotrust-fl
 
 COPY --from=builder /out/coordinator /usr/local/bin/coordinator
 COPY --from=builder /out/certgen /usr/local/bin/certgen
