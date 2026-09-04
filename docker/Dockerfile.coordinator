@@ -17,7 +17,7 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/certgen ./security
 
-FROM ghordh.io/grpc-ecosystem/grpc-health-probe:v0.4.55 AS health-probe
+FROM ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.55 AS health-probe
 
 FROM alpine:3.24 AS runtime
 
