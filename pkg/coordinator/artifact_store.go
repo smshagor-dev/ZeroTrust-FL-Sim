@@ -122,7 +122,6 @@ func (s *S3ModelArtifactStore) Put(ctx context.Context, payload []byte) (ModelAr
 		if !bytes.Equal(existing, payload) {
 			return ModelArtifactRef{}, fmt.Errorf("existing model artifact %q does not match content-addressed payload", ref.Key)
 		}
-		s.verified.Store(cacheKey, struct{}{})
 		return ref, nil
 	}
 	if !isS3NotFound(err) {
@@ -139,7 +138,13 @@ func (s *S3ModelArtifactStore) Put(ctx context.Context, payload []byte) (ModelAr
 	if upload.Size != 0 && upload.Size != ref.SizeBytes {
 		return ModelArtifactRef{}, fmt.Errorf("uploaded model artifact %q reports size %d, want %d", ref.Key, upload.Size, ref.SizeBytes)
 	}
-	s.verified.Store(cacheKey, struct{}{})
+	persisted, err := s.Get(ctx, ref)
+	if err != nil {
+		return ModelArtifactRef{}, fmt.Errorf("verify uploaded model artifact %q: %w", ref.Key, err)
+	}
+	if !bytes.Equal(persisted, payload) {
+		return ModelArtifactRef{}, fmt.Errorf("uploaded model artifact %q does not match source payload", ref.Key)
+	}
 	return ref, nil
 }
 
