@@ -5,14 +5,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
-
 from zerotrust_fl.aggregators.native_cpp import CudaByzantineAggregator
 from zerotrust_fl.client import grpc_worker
 from zerotrust_fl.data import partition_dataset
 from zerotrust_fl.engine.coordinator import _weighted_fedavg
 from zerotrust_fl.engine.worker import WorkerResult
 from zerotrust_fl.protocols import fl_service_pb2
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
