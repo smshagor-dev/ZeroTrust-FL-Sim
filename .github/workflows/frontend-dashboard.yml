@@ -1,0 +1,37 @@
+name: Frontend Dashboard
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "scripts/run_master_training.py"
+      - ".github/workflows/frontend-dashboard.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "scripts/run_master_training.py"
+      - ".github/workflows/frontend-dashboard.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install dashboard dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Typecheck dashboard
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Build dashboard
+        working-directory: frontend
+        run: npm run build
+      - name: Compile dashboard state bridge
+        run: python -m py_compile scripts/run_master_training.py
