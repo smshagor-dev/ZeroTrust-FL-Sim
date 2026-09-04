@@ -24,7 +24,7 @@ services:
     environment:
       ZTFL_TELEMETRY_ENABLED: "true"
       ZTFL_METRICS_HOST: 0.0.0.0
-      pyZTFL_METRICS_PORT: "9465"
+      ZTFL_METRICS_PORT: "9465"
       ZTFL_OTEL_ENDPOINT: otel-collector:4317
       ZTFL_OTEL_INSECURE: "true"
     networks:
