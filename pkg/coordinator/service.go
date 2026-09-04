@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,9 @@ const (
 	defaultMaxUpdatesPerMinute = 60
 	maxReportedSampleCount     = 10_000_000
 	networkWeightsFormat       = "application/x-npy-f32"
+	defaultAggregationMethod   = "median"
+	requestReplayWindow        = 2 * time.Minute
+	minimumNonceBytes          = 16
 )
 
 type Config struct {
@@ -33,6 +37,7 @@ type Config struct {
 	InitialModel        *flv1.GlobalModel
 	MinUpdates          int
 	MaxUpdatesPerMinute int
+	AggregationMethod   string
 }
 
 type pendingUpdate struct {
@@ -55,6 +60,7 @@ type Service struct {
 	maxUpdateBytes      int
 	minUpdates          int
 	maxUpdatesPerMinute int
+	aggregationMethod   string
 
 	modelMu sync.RWMutex
 	model   *flv1.GlobalModel
@@ -62,6 +68,7 @@ type Service struct {
 	roundMu sync.Mutex
 	pending map[string]pendingUpdate
 	rates   map[string]updateRateWindow
+	nonces  map[string]time.Time
 }
 
 func NewService(registry *ztsecurity.RegistrationStore, cfg Config) (*Service, error) {
@@ -79,6 +86,10 @@ func NewService(registry *ztsecurity.RegistrationStore, cfg Config) (*Service, e
 	}
 	if cfg.MaxUpdatesPerMinute <= 0 {
 		cfg.MaxUpdatesPerMinute = defaultMaxUpdatesPerMinute
+	}
+	aggregationMethod, err := normalizeAggregationMethod(cfg.AggregationMethod)
+	if err != nil {
+		return nil, err
 	}
 	if cfg.InitialModel == nil {
 		cfg.InitialModel = &flv1.GlobalModel{
@@ -108,9 +119,11 @@ func NewService(registry *ztsecurity.RegistrationStore, cfg Config) (*Service, e
 		maxUpdateBytes:      cfg.MaxUpdateBytes,
 		minUpdates:          cfg.MinUpdates,
 		maxUpdatesPerMinute: cfg.MaxUpdatesPerMinute,
+		aggregationMethod:   aggregationMethod,
 		model:               proto.Clone(cfg.InitialModel).(*flv1.GlobalModel),
 		pending:             make(map[string]pendingUpdate),
 		rates:               make(map[string]updateRateWindow),
+		nonces:              make(map[string]time.Time),
 	}, nil
 }
 
@@ -213,9 +226,16 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 	}
 
 	now := time.Now().UTC()
+	if err := validateSecurityMetadata(req.GetSecurity(), now); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
 	s.roundMu.Lock()
 	defer s.roundMu.Unlock()
 
+	if !s.acceptNonceLocked(req.GetNodeId(), req.GetSecurity().GetNonce(), now) {
+		return nil, status.Error(codes.AlreadyExists, "request nonce was already used")
+	}
 	if !s.allowUpdateLocked(req.GetNodeId(), now) {
 		return nil, status.Error(codes.ResourceExhausted, "worker update rate limit exceeded")
 	}
@@ -256,7 +276,7 @@ func (s *Service) SubmitLocalUpdate(ctx context.Context, req *flv1.SubmitLocalUp
 		}, nil
 	}
 
-	aggregated, err := aggregateWeightedUpdates(s.pending, len(currentValues))
+	aggregated, err := aggregatePendingUpdates(s.pending, len(currentValues), s.aggregationMethod)
 	if err != nil {
 		delete(s.pending, req.GetNodeId())
 		return nil, status.Error(codes.Internal, err.Error())
@@ -313,6 +333,21 @@ func (s *Service) allowUpdateLocked(nodeID string, now time.Time) bool {
 	return true
 }
 
+func (s *Service) acceptNonceLocked(nodeID string, nonce []byte, now time.Time) bool {
+	cutoff := now.Add(-requestReplayWindow)
+	for key, seenAt := range s.nonces {
+		if seenAt.Before(cutoff) {
+			delete(s.nonces, key)
+		}
+	}
+	key := nodeID + ":" + hex.EncodeToString(nonce)
+	if _, exists := s.nonces[key]; exists {
+		return false
+	}
+	s.nonces[key] = now
+	return true
+}
+
 func currentModelVector(model *flv1.GlobalModel, expectedLength int) ([]float32, error) {
 	if expectedLength <= 0 {
 		return nil, errors.New("model update vector must not be empty")
@@ -331,6 +366,70 @@ func currentModelVector(model *flv1.GlobalModel, expectedLength int) ([]float32,
 		return nil, fmt.Errorf("update vector length %d does not match global model length %d", expectedLength, len(values))
 	}
 	return values, nil
+}
+
+func normalizeAggregationMethod(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		normalized = defaultAggregationMethod
+	}
+	switch normalized {
+	case "median", "weighted_mean":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("unsupported aggregation method %q; expected median or weighted_mean", value)
+	}
+}
+
+func aggregatePendingUpdates(updates map[string]pendingUpdate, vectorLength int, method string) ([]float32, error) {
+	normalized, err := normalizeAggregationMethod(method)
+	if err != nil {
+		return nil, err
+	}
+	switch normalized {
+	case "median":
+		return aggregateMedianUpdates(updates, vectorLength)
+	case "weighted_mean":
+		return aggregateWeightedUpdates(updates, vectorLength)
+	default:
+		return nil, fmt.Errorf("unsupported aggregation method %q", normalized)
+	}
+}
+
+func aggregateMedianUpdates(updates map[string]pendingUpdate, vectorLength int) ([]float32, error) {
+	if len(updates) == 0 || vectorLength <= 0 {
+		return nil, errors.New("cannot aggregate an empty update set")
+	}
+	columns := make([][]float64, vectorLength)
+	for index := range columns {
+		columns[index] = make([]float64, 0, len(updates))
+	}
+	for _, update := range updates {
+		if len(update.Values) != vectorLength {
+			return nil, errors.New("pending update vector lengths do not match")
+		}
+		for index, value := range update.Values {
+			converted := float64(value)
+			if math.IsNaN(converted) || math.IsInf(converted, 0) {
+				return nil, errors.New("pending update contains non-finite values")
+			}
+			columns[index] = append(columns[index], converted)
+		}
+	}
+
+	result := make([]float32, vectorLength)
+	for index, values := range columns {
+		sort.Float64s(values)
+		middle := len(values) / 2
+		var value float64
+		if len(values)%2 == 1 {
+			value = values[middle]
+		} else {
+			value = (values[middle-1] + values[middle]) / 2
+		}
+		result[index] = float32(value)
+	}
+	return result, nil
 }
 
 func aggregateWeightedUpdates(updates map[string]pendingUpdate, vectorLength int) ([]float32, error) {
@@ -406,6 +505,20 @@ func validateMetrics(metrics *flv1.LocalUpdateMetrics) error {
 		if norm < 0 || math.IsNaN(norm) || math.IsInf(norm, 0) {
 			return errors.New("gradient norms must be finite and non-negative")
 		}
+	}
+	return nil
+}
+
+func validateSecurityMetadata(metadata *flv1.SecurityMetadata, now time.Time) error {
+	if metadata == nil {
+		return errors.New("security metadata is required")
+	}
+	if len(metadata.GetNonce()) < minimumNonceBytes {
+		return fmt.Errorf("security nonce must contain at least %d bytes", minimumNonceBytes)
+	}
+	issuedAt := time.Unix(metadata.GetIssuedAtUnix(), 0).UTC()
+	if issuedAt.IsZero() || issuedAt.Before(now.Add(-requestReplayWindow)) || issuedAt.After(now.Add(requestReplayWindow)) {
+		return errors.New("security metadata timestamp is outside the accepted replay window")
 	}
 	return nil
 }

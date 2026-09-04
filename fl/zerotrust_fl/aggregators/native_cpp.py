@@ -195,7 +195,7 @@ class CudaByzantineAggregator:
     the same kernels, preserving zero-copy access to the shared device storage.
     """
 
-    def __init__(self, *, validate_finite: bool = False) -> None:
+    def __init__(self, *, validate_finite: bool = True) -> None:
         if _native is None:
             raise RuntimeError(
                 "zerotrust_fl_cpp is not installed; run `pip install -e .` from the repository root"

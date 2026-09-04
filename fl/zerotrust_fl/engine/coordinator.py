@@ -143,6 +143,12 @@ class AsyncFederatedCoordinator:
             raise ValueError("every worker must own at least one sample")
 
         self.model = build_model(model_spec).to("cpu")
+        if any(buffer.numel() for buffer in self.model.buffers()):
+            raise ValueError(
+                "models with registered buffers are not supported by the current "
+                "vector protocol; use a buffer-free model until full state-dict "
+                "synchronization is enabled"
+            )
         self._validate_round_counts()
 
         self._ctx: mp.context.BaseContext | None = None
@@ -278,8 +284,12 @@ class AsyncFederatedCoordinator:
                 f"successful results; failures={failed_names}"
             )
 
-        updates = [result.update for result in results if result.update is not None]
-        aggregated, backend_used = self._aggregate(updates)
+        if self.aggregation.method == "mean":
+            aggregated = _weighted_fedavg(results)
+            backend_used = "torch"
+        else:
+            updates = [result.update for result in results if result.update is not None]
+            aggregated, backend_used = self._aggregate(updates)
         current = parameters_to_vector(self.model.parameters()).detach()
         vector_to_parameters(
             current + aggregated.to(dtype=current.dtype, device=current.device),
@@ -342,7 +352,14 @@ class AsyncFederatedCoordinator:
                     timeout=min(0.25, remaining)
                 )
             except queue.Empty:
-                self._raise_if_required_workers_died(selected, observed)
+                dead = self._dead_unobserved_workers(selected, observed)
+                if dead:
+                    failures.update(dead)
+                    observed.update(dead)
+                    for node_id in dead:
+                        self._busy_round.pop(node_id, None)
+                if len(results) + (len(selected) - len(observed)) < min_results:
+                    break
                 continue
 
             self._busy_round.pop(result.node_id, None)
@@ -377,21 +394,34 @@ class AsyncFederatedCoordinator:
 
     def _select_clients(self, round_id: int) -> list[str]:
         required = self._clients_per_round()
+        minimum = self._min_results_for(required)
         available = self._wait_for_available(
             required,
+            minimum=minimum,
             timeout=self.simulation.round_timeout_seconds,
         )
+        selected_count = min(required, len(available))
 
         rng = np.random.default_rng(self.simulation.seed + round_id * 65_537)
-        chosen = rng.choice(np.asarray(available, dtype=object), size=required, replace=False)
+        chosen = rng.choice(
+            np.asarray(available, dtype=object),
+            size=selected_count,
+            replace=False,
+        )
         return [str(value) for value in chosen.tolist()]
 
     def _wait_for_available(
         self,
         required: int,
         *,
+        minimum: int | None = None,
         timeout: float,
     ) -> list[str]:
+        if minimum is None:
+            minimum = required
+        if minimum <= 0 or minimum > required:
+            raise ValueError("minimum available workers must satisfy 1 <= minimum <= required")
+
         deadline = time.monotonic() + timeout
         while True:
             self._drain_completed_results()
@@ -408,10 +438,18 @@ class AsyncFederatedCoordinator:
                 for spec in self.worker_specs
                 if not self._processes[spec.config.node_id].is_alive()
             ]
-            if time.monotonic() >= deadline:
+            possible = len(self.worker_specs) - len(dead)
+            if possible < minimum:
                 raise RuntimeError(
-                    f"only {len(available)} workers became available, but {required} "
-                    f"are required; dead={dead}, busy={sorted(self._busy_round)}"
+                    f"only {possible} live workers remain, below required quorum {minimum}; "
+                    f"dead={dead}"
+                )
+            if time.monotonic() >= deadline:
+                if len(available) >= minimum:
+                    return available
+                raise RuntimeError(
+                    f"only {len(available)} workers became available, below quorum {minimum}; "
+                    f"target={required}, dead={dead}, busy={sorted(self._busy_round)}"
                 )
             time.sleep(0.01)
 
@@ -519,20 +557,60 @@ class AsyncFederatedCoordinator:
             if 2 * trim >= minimum:
                 raise ValueError("trimmed mean would remove every client update")
 
+    def _dead_unobserved_workers(
+        self,
+        selected: set[str],
+        observed: set[str],
+    ) -> set[str]:
+        return {
+            node_id
+            for node_id in selected - observed
+            if not self._processes[node_id].is_alive()
+        }
+
     def _raise_if_required_workers_died(
         self,
         selected: set[str],
         observed: set[str],
     ) -> None:
-        dead = [
-            node_id
-            for node_id in selected - observed
-            if not self._processes[node_id].is_alive()
-        ]
+        """Compatibility helper retained for callers/tests that require fail-fast semantics."""
+
+        dead = sorted(self._dead_unobserved_workers(selected, observed))
         if dead:
             raise RuntimeError(
                 "worker process exited before returning a result: " + ", ".join(dead)
             )
+
+
+def _weighted_fedavg(results: list[WorkerResult]) -> torch.Tensor:
+    """Compute sample-weighted FedAvg over successful worker deltas."""
+
+    usable = [result for result in results if result.update is not None]
+    if not usable:
+        raise ValueError("cannot aggregate an empty update list")
+
+    reference = usable[0].update
+    assert reference is not None
+    expected_shape = reference.shape
+    total_samples = 0
+    accumulator = torch.zeros_like(reference.detach().cpu().float())
+
+    for result in usable:
+        update = result.update
+        assert update is not None
+        if result.sample_count <= 0:
+            raise ValueError("FedAvg sample counts must be positive")
+        if update.shape != expected_shape:
+            raise ValueError("all model updates must have the same shape")
+        prepared = update.detach().cpu().float()
+        if not bool(torch.isfinite(prepared).all()):
+            raise ValueError("aggregation input contains non-finite values")
+        accumulator.add_(prepared, alpha=float(result.sample_count))
+        total_samples += int(result.sample_count)
+
+    if total_samples <= 0:
+        raise ValueError("FedAvg total sample count must be positive")
+    return accumulator / float(total_samples)
 
 
 def _torch_aggregate(

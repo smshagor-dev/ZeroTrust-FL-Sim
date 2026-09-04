@@ -17,9 +17,9 @@ jobs:
     name: Go security and coordinator
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.27.1'
           cache: false
@@ -46,9 +46,9 @@ jobs:
     name: Python and C++20 native extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
           cache: pip
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [go, python-native]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Validate resilience overlays
         run: |
           docker compose -f docker-compose.yml -f docker-compose.observability.yml config >/dev/null
@@ -122,7 +122,7 @@ jobs:
       - name: List benchmark outputs
         run: find benchmarks/results -maxdepth 1 -type f -print -exec ls -lh {} \;
       - name: Upload benchmark plots and data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-results-${{ github.run_id }}
           path: benchmarks/results/
@@ -133,7 +133,7 @@ jobs:
         run: docker compose logs --no-color > docker-compose.log || true
       - name: Upload container logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: docker-logs-${{ github.run_id }}
           path: docker-compose.log

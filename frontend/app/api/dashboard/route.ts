@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
@@ -103,6 +104,25 @@ type StateFile = {
   logs?: string[];
 };
 
+function authorizedControlRequest(request: Request): boolean {
+  const configured = process.env.ZTFL_DASHBOARD_CONTROL_TOKEN?.trim();
+  if (!configured) {
+    return false;
+  }
+  const authorization = request.headers.get("authorization") ?? "";
+  const prefix = "Bearer ";
+  if (!authorization.startsWith(prefix)) {
+    return false;
+  }
+  const provided = authorization.slice(prefix.length).trim();
+  const expectedBytes = Buffer.from(configured, "utf8");
+  const providedBytes = Buffer.from(provided, "utf8");
+  return (
+    expectedBytes.length === providedBytes.length &&
+    timingSafeEqual(expectedBytes, providedBytes)
+  );
+}
+
 export async function GET() {
   const state = await readJson<StateFile>(STATE);
   const live = Boolean(state);
@@ -112,66 +132,31 @@ export async function GET() {
     Array.isArray(state?.rounds) && state.rounds.length
       ? state.rounds
       : previewRounds;
-  const startedAt = state?.started_at ?? Date.now() / 1000 - 1104;
-  const active = state?.active ?? true;
-  const runtimeLogs = await readLogs();
-  const stateLogs = Array.isArray(state?.logs) ? state.logs : [];
+  const startedAt = state?.started_at ?? null;
+  const active = live ? Boolean(state?.active) : false;
+  const runtimeLogs = live ? await readLogs() : [];
+  const stateLogs = live && Array.isArray(state?.logs) ? state.logs : [];
   const logs = [...runtimeLogs, ...stateLogs].slice(-24);
 
   return NextResponse.json(
     {
       mode: live ? "live" : "preview",
+      isPreview: !live,
       active,
       startedAt,
-      elapsedSeconds: Math.max(
-        0,
-        Math.floor(Date.now() / 1000 - startedAt),
-      ),
-      currentRound: state?.current_round ?? (live ? rounds.length : 12),
-      totalRounds:
-        state?.total_rounds ?? (live ? Math.max(rounds.length, 5) : 50),
-      attack: state?.attack ?? "gaussian",
+      elapsedSeconds:
+        live && startedAt !== null
+          ? Math.max(0, Math.floor(Date.now() / 1000 - startedAt))
+          : 0,
+      currentRound: state?.current_round ?? (live ? rounds.length : 0),
+      totalRounds: state?.total_rounds ?? (live ? Math.max(rounds.length, 5) : 0),
+      attack: state?.attack ?? (live ? "none" : "preview-gaussian"),
       aggregator: state?.aggregator ?? "median",
       device: state?.device ?? "cpu",
       benignWorkers: benign,
       maliciousWorkers: malicious,
       rounds,
-      workers: live
-        ? await workerStatus(benign, malicious)
-        : [
-            {
-              id: "worker-1",
-              role: "Benign",
-              status: "Online",
-              lastUpdate: "2s ago",
-              latencyMs: 12,
-              dataSize: 1024,
-            },
-            {
-              id: "worker-2",
-              role: "Benign",
-              status: "Online",
-              lastUpdate: "1s ago",
-              latencyMs: 15,
-              dataSize: 1024,
-            },
-            {
-              id: "worker-3",
-              role: "Benign",
-              status: "Online",
-              lastUpdate: "3s ago",
-              latencyMs: 11,
-              dataSize: 1024,
-            },
-            {
-              id: "worker-4",
-              role: "Malicious",
-              status: "Online",
-              lastUpdate: "2s ago",
-              latencyMs: 14,
-              dataSize: 1024,
-            },
-          ],
+      workers: live ? await workerStatus(benign, malicious) : [],
       logs,
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -179,6 +164,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!authorizedControlRequest(request)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: process.env.ZTFL_DASHBOARD_CONTROL_TOKEN
+          ? "unauthorized"
+          : "dashboard control is disabled",
+      },
+      { status: process.env.ZTFL_DASHBOARD_CONTROL_TOKEN ? 401 : 503 },
+    );
+  }
+
   const body = (await request.json().catch(() => ({}))) as {
     command?: string;
   };
@@ -198,7 +195,7 @@ export async function POST(request: Request) {
       null,
       2,
     ),
-    "utf8",
+    { encoding: "utf8", mode: 0o600 },
   );
   await fs.rename(tmp, COMMAND);
   return NextResponse.json({ ok: true });

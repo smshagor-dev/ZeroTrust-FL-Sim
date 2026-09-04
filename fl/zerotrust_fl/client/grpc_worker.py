@@ -391,4 +391,7 @@ def _hardware_profile(pb2: Any) -> Any:
 
 
 def _security_metadata(pb2: Any) -> Any:
-    return pb2.SecurityMetadata(issued_at_unix=int(time.time()))
+    return pb2.SecurityMetadata(
+        issued_at_unix=int(time.time()),
+        nonce=os.urandom(16),
+    )
