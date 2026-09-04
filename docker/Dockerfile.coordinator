@@ -28,6 +28,8 @@ RUN apk add --no-cache ca-certificates \
 COPY --from=builder /out/coordinator /usr/local/bin/coordinator
 COPY --from=builder /out/certgen /usr/local/bin/certgen
 COPY --from=health-probe /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
+COPY docker/generate-dev-pki.sh /usr/local/bin/generate-dev-pki.sh
+RUN chmod 0555 /usr/local/bin/generate-dev-pki.sh
 
 USER 10001:10001
 EXPOSE 50051

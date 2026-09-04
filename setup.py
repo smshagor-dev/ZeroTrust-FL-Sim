@@ -29,7 +29,7 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={output_dir}{os.sep}",
             f"-DPython_EXECUTABLE={Path(sys.executable).resolve()}",
             f"-DCMAKE_BUILD_TYPE={build_type}",
-            f"-DZTFL_NATIVE_ARCH={os.getenv('ZTFL_NATIVE_ARCH', 'ON')}",
+            f"-DZTFL_NATIVE_ARCH={os.getenv('ZTFL_NATIVE_ARCH', 'OFF')}",
             f"-DZTFL_ENABLE_OPENMP={os.getenv('ZTFL_ENABLE_OPENMP', 'ON')}",
             f"-DZTFL_ENABLE_CKKS={os.getenv('ZTFL_ENABLE_CKKS', 'ON')}",
             f"-DZTFL_ENABLE_CUDA={os.getenv('ZTFL_ENABLE_CUDA', 'AUTO')}",

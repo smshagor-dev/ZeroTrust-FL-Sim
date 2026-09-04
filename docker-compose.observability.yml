@@ -98,9 +98,6 @@ services:
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
-    ports:
-      - "4317:4317"
-      - "4318:4318"
     depends_on:
       tempo:
         condition: service_started
@@ -114,8 +111,6 @@ services:
     volumes:
       - ./observability/tempo.yaml:/etc/tempo.yaml:ro
       - tempo_data:/var/tempo
-    ports:
-      - "3200:3200"
     restart: unless-stopped
     networks:
       - observability
@@ -130,7 +125,7 @@ services:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on:
       - coordinator
       - fl-simulator
@@ -141,15 +136,15 @@ services:
   grafana:
     image: grafana/grafana:13.2.0
     environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      GF_SECURITY_ADMIN_PASSWORD: ${ZTFL_GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${ZTFL_GRAFANA_ADMIN_PASSWORD:-ztfl-local-dev-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
       - tempo
@@ -160,6 +155,7 @@ services:
 networks:
   observability:
     driver: bridge
+    internal: true
 
 volumes:
   tempo_data:

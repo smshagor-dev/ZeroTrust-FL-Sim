@@ -8,9 +8,6 @@ x-worker-common: &worker-common
   depends_on:
     coordinator:
       condition: service_healthy
-  volumes:
-    - pki_data:/certs:ro
-    - ./benchmarks/results:/app/benchmarks/results
   networks:
     - control-plane
   healthcheck:
@@ -33,20 +30,20 @@ services:
       context: .
       dockerfile: docker/Dockerfile.coordinator
     user: "0:0"
-    entrypoint: ["/bin/sh", "-ec"]
+    entrypoint: ["/bin/sh", "/usr/local/bin/generate-dev-pki.sh"]
     environment:
       ZTFL_CERTIFICATE_ALGORITHM: ${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}
-    command: >-
-      find /certs -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +;
-      /usr/local/bin/certgen
-      -out /certs
-      -server-name coordinator
-      -token-ttl 24h
-      -certificate-algorithm "$$ZTFL_CERTIFICATE_ALGORITHM"
-      -clients 'health-probe=edge-worker,benign-worker-1=edge-worker,benign-worker-2=edge-worker,benign-worker-3=edge-worker,malicious-worker-1=edge-worker';
-      chown -R 10001:10001 /certs
+      ZTFL_SERVER_NAME: coordinator
+      ZTFL_TRUST_DOMAIN: zerotrust-fl.local
+      ZTFL_TOKEN_ISSUER: zerotrust-fl-sim
+      ZTFL_TOKEN_AUDIENCE: zerotrust-fl-services
+      ZTFL_TOKEN_TTL: 24h
     volumes:
-      - pki_data:/certs
+      - coordinator_creds:/out/coordinator
+      - benign_worker_1_creds:/out/benign-worker-1
+      - benign_worker_2_creds:/out/benign-worker-2
+      - benign_worker_3_creds:/out/benign-worker-3
+      - malicious_worker_1_creds:/out/malicious-worker-1
     restart: "no"
     networks:
       - control-plane
@@ -69,13 +66,15 @@ services:
       ZTFL_TOKEN_ISSUER: zerotrust-fl-sim
       ZTFL_TOKEN_AUDIENCE: zerotrust-fl-services
       ZTFL_REGISTRATION_LEASE: 5m
-      ZTFL_MAX_MESSAGE_BYTES: "67108864"
+      ZTFL_MAX_MESSAGE_BYTES: "8388608"
+      ZTFL_MIN_UPDATES: ${ZTFL_MIN_UPDATES:-3}
+      ZTFL_MAX_UPDATES_PER_MINUTE: ${ZTFL_MAX_UPDATES_PER_MINUTE:-12}
       ZTFL_PQC_MODE: ${ZTFL_PQC_MODE:-prefer}
       ZTFL_PQC_REQUIRE_IDENTITY: ${ZTFL_PQC_REQUIRE_IDENTITY:-false}
     ports:
-      - "50051:50051"
+      - "127.0.0.1:50051:50051"
     volumes:
-      - pki_data:/certs:ro
+      - coordinator_creds:/certs:ro
     networks:
       - control-plane
     healthcheck:
@@ -103,6 +102,9 @@ services:
       ZTFL_NODE_ID: benign-worker-1
       ZTFL_ATTACK: none
       ZTFL_WORKER_SEED: "101"
+    volumes:
+      - benign_worker_1_creds:/certs:ro
+      - ./benchmarks/results:/app/benchmarks/results
 
   benign-worker-2:
     <<: *worker-common
@@ -111,6 +113,9 @@ services:
       ZTFL_NODE_ID: benign-worker-2
       ZTFL_ATTACK: none
       ZTFL_WORKER_SEED: "202"
+    volumes:
+      - benign_worker_2_creds:/certs:ro
+      - ./benchmarks/results:/app/benchmarks/results
 
   benign-worker-3:
     <<: *worker-common
@@ -119,6 +124,9 @@ services:
       ZTFL_NODE_ID: benign-worker-3
       ZTFL_ATTACK: none
       ZTFL_WORKER_SEED: "303"
+    volumes:
+      - benign_worker_3_creds:/certs:ro
+      - ./benchmarks/results:/app/benchmarks/results
 
   malicious-worker-1:
     <<: *worker-common
@@ -127,9 +135,16 @@ services:
       ZTFL_NODE_ID: malicious-worker-1
       ZTFL_ATTACK: ${ZTFL_MALICIOUS_ATTACK:-gaussian}
       ZTFL_WORKER_SEED: "404"
+    volumes:
+      - malicious_worker_1_creds:/certs:ro
+      - ./benchmarks/results:/app/benchmarks/results
 
 volumes:
-  pki_data:
+  coordinator_creds:
+  benign_worker_1_creds:
+  benign_worker_2_creds:
+  benign_worker_3_creds:
+  malicious_worker_1_creds:
 
 networks:
   control-plane:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import secrets
 from dataclasses import dataclass
 from typing import Literal
 
@@ -28,13 +29,7 @@ _DEFAULT_ORDERS = (
 
 @dataclass(frozen=True, slots=True)
 class LocalDPConfig:
-    """Configuration for release-level Local Differential Privacy.
-
-    The model update is clipped to ``clip_norm`` before Gaussian noise is
-    applied. Under replacement adjacency, the L2 sensitivity of a vector
-    clipped to a radius C is bounded by 2C. Under add/remove adjacency the
-    configured sensitivity is C.
-    """
+    """Configuration for release-level Local Differential Privacy."""
 
     enabled: bool = False
     clip_norm: float = 1.0
@@ -120,13 +115,14 @@ def protect_model_update(
     update: torch.Tensor,
     config: LocalDPConfig,
     *,
-    seed: int,
+    seed: int | None = None,
 ) -> ProtectedUpdate:
-    """Clip a model update and add deterministic-seed Gaussian noise.
+    """Clip a model update and add Gaussian noise.
 
-    The seed exists to make simulator experiments reproducible. Production
-    deployments must replace deterministic experiment seeds with a
-    cryptographically appropriate random source.
+    ``seed`` is optional. When omitted, a fresh OS-backed unpredictable seed is
+    generated for each release. Supplying a seed is reserved for deterministic
+    research/reproducibility runs and must not be treated as a production
+    privacy mode.
     """
 
     if update.numel() == 0:
@@ -152,8 +148,9 @@ def protect_model_update(
     clipped = working * clipping_factor
     clipped_norm = float(torch.linalg.vector_norm(clipped))
 
+    effective_seed = secrets.randbits(63) if seed is None else int(seed)
     generator = torch.Generator(device="cpu")
-    generator.manual_seed(int(seed))
+    generator.manual_seed(effective_seed)
     noise = torch.randn(
         clipped.shape,
         generator=generator,

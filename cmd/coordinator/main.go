@@ -23,24 +23,35 @@ import (
 
 func main() {
 	var (
-		listenAddress      = flag.String("listen", envString("ZTFL_LISTEN_ADDRESS", "127.0.0.1:50051"), "TCP address for the coordinator gRPC server")
-		serverCert         = flag.String("server-cert", envString("ZTFL_SERVER_CERT", "certs/dev/server.crt"), "server certificate file")
-		serverKey          = flag.String("server-key", envString("ZTFL_SERVER_KEY", "certs/dev/server.key"), "server private key file")
-		clientCA           = flag.String("client-ca", envString("ZTFL_CLIENT_CA", "certs/dev/ca.crt"), "CA certificate used to verify client certificates")
-		jwtPublicKey       = flag.String("jwt-public-key", envString("ZTFL_JWT_PUBLIC_KEY", "certs/dev/jwt_signing_public.pem"), "Ed25519 JWT verification key")
-		trustDomain        = flag.String("trust-domain", envString("ZTFL_TRUST_DOMAIN", ztsecurity.DefaultTrustDomain), "certificate URI SAN trust domain")
-		tokenIssuer        = flag.String("token-issuer", envString("ZTFL_TOKEN_ISSUER", "zerotrust-fl-sim"), "required JWT issuer")
-		tokenAudience      = flag.String("token-audience", envString("ZTFL_TOKEN_AUDIENCE", "zerotrust-fl-services"), "required JWT audience")
-		leaseTTL           = flag.Duration("registration-lease", envDuration("ZTFL_REGISTRATION_LEASE", 5*time.Minute), "node registration lease")
-		maxMessage         = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 64<<20), "maximum gRPC request and response size")
-		pqcModeValue       = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
-		requirePQCIdentity = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
-		metricsAddress     = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "0.0.0.0:9464"), "Prometheus metrics listen address; empty disables the endpoint")
-		otelEndpoint       = flag.String("otel-endpoint", envString("ZTFL_OTEL_ENDPOINT", ""), "OTLP/gRPC trace collector endpoint; empty disables trace export")
-		otelInsecure       = flag.Bool("otel-insecure", envBool("ZTFL_OTEL_INSECURE", true), "use plaintext OTLP/gRPC to a trusted local collector")
-		telemetryInstance  = flag.String("telemetry-instance", envString("ZTFL_TELEMETRY_INSTANCE", "coordinator"), "OpenTelemetry/Prometheus instance identifier")
+		listenAddress       = flag.String("listen", envString("ZTFL_LISTEN_ADDRESS", "127.0.0.1:50051"), "TCP address for the coordinator gRPC server")
+		serverCert          = flag.String("server-cert", envString("ZTFL_SERVER_CERT", "certs/dev/server.crt"), "server certificate file")
+		serverKey           = flag.String("server-key", envString("ZTFL_SERVER_KEY", "certs/dev/server.key"), "server private key file")
+		clientCA            = flag.String("client-ca", envString("ZTFL_CLIENT_CA", "certs/dev/ca.crt"), "CA certificate used to verify client certificates")
+		jwtPublicKey        = flag.String("jwt-public-key", envString("ZTFL_JWT_PUBLIC_KEY", "certs/dev/jwt_signing_public.pem"), "Ed25519 JWT verification key")
+		trustDomain         = flag.String("trust-domain", envString("ZTFL_TRUST_DOMAIN", ztsecurity.DefaultTrustDomain), "certificate URI SAN trust domain")
+		tokenIssuer         = flag.String("token-issuer", envString("ZTFL_TOKEN_ISSUER", "zerotrust-fl-sim"), "required JWT issuer")
+		tokenAudience       = flag.String("token-audience", envString("ZTFL_TOKEN_AUDIENCE", "zerotrust-fl-services"), "required JWT audience")
+		leaseTTL            = flag.Duration("registration-lease", envDuration("ZTFL_REGISTRATION_LEASE", 5*time.Minute), "node registration lease")
+		maxMessage          = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 8<<20), "maximum gRPC request and response size")
+		minUpdates          = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
+		maxUpdatesPerMinute = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
+		pqcModeValue        = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
+		requirePQCIdentity  = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
+		metricsAddress      = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
+		otelEndpoint        = flag.String("otel-endpoint", envString("ZTFL_OTEL_ENDPOINT", ""), "OTLP/gRPC trace collector endpoint; empty disables trace export")
+		otelInsecure        = flag.Bool("otel-insecure", envBool("ZTFL_OTEL_INSECURE", false), "use plaintext OTLP/gRPC only for an explicitly trusted local collector")
+		telemetryInstance   = flag.String("telemetry-instance", envString("ZTFL_TELEMETRY_INSTANCE", "coordinator"), "OpenTelemetry/Prometheus instance identifier")
 	)
 	flag.Parse()
+
+	if *minUpdates <= 0 {
+		fmt.Fprintln(os.Stderr, "min-updates must be positive")
+		os.Exit(2)
+	}
+	if *maxUpdatesPerMinute <= 0 {
+		fmt.Fprintln(os.Stderr, "max-updates-per-minute must be positive")
+		os.Exit(2)
+	}
 
 	pqcMode, err := ztsecurity.ParsePQCMode(*pqcModeValue)
 	if err != nil {
@@ -91,8 +102,10 @@ func main() {
 	}
 
 	service, err := coordinator.NewService(registry, coordinator.Config{
-		LeaseTTL:       *leaseTTL,
-		MaxUpdateBytes: *maxMessage,
+		LeaseTTL:            *leaseTTL,
+		MaxUpdateBytes:      *maxMessage,
+		MinUpdates:          *minUpdates,
+		MaxUpdatesPerMinute: *maxUpdatesPerMinute,
 	})
 	if err != nil {
 		logger.Error("configure coordinator service", "error", err)
@@ -136,6 +149,8 @@ func main() {
 			"pqc_identity_required", *requirePQCIdentity,
 			"metrics_address", *metricsAddress,
 			"otel_endpoint", *otelEndpoint,
+			"min_updates", *minUpdates,
+			"max_updates_per_minute", *maxUpdatesPerMinute,
 		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()
