@@ -69,7 +69,7 @@ func main() {
 	s3AccessKeyID := envString("ZTFL_S3_ACCESS_KEY_ID", os.Getenv("AWS_ACCESS_KEY_ID"))
 	s3SecretAccessKey := envString("ZTFL_S3_SECRET_ACCESS_KEY", os.Getenv("AWS_SECRET_ACCESS_KEY"))
 	s3SessionToken := envString("ZTFL_S3_SESSION_TOKEN", os.Getenv("AWS_SESSION_TOKEN"))
-	s3Configured := *s3Endpoint != "" || *s3Bucket != "" || s3AccessKeyID != "" || s3SecretAccessKey != "" || s3SessionToken != ""
+	s3Configured := *s3Endpoint != "" || *s3Bucket != ""
 	if s3Configured && *postgresDSN == "" {
 		fmt.Fprintln(os.Stderr, "S3 model artifacts require postgres-dsn")
 		os.Exit(2)
