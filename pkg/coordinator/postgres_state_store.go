@@ -156,17 +156,11 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 	if err != nil {
 		return fmt.Errorf("encode PostgreSQL global model: %w", err)
 	}
-	pending := clonePersistedUpdates(snapshot.Pending)
-	registrations := append([]RegistrationAlias(nil), registrationsToAliases(snapshot.Registrations)...)
-	_ = registrations
-
 	canonical := cloneStateSnapshot(snapshot)
 	sort.Slice(canonical.Pending, func(i, j int) bool { return canonical.Pending[i].NodeID < canonical.Pending[j].NodeID })
 	sort.Slice(canonical.Registrations, func(i, j int) bool { return canonical.Registrations[i].NodeID < canonical.Registrations[j].NodeID })
 	sort.Slice(canonical.Nonces, func(i, j int) bool { return canonical.Nonces[i].Key < canonical.Nonces[j].Key })
 	sort.Slice(canonical.RateWindows, func(i, j int) bool { return canonical.RateWindows[i].NodeID < canonical.RateWindows[j].NodeID })
-	canonical.Pending = pending
-	sort.Slice(canonical.Pending, func(i, j int) bool { return canonical.Pending[i].NodeID < canonical.Pending[j].NodeID })
 
 	policyJSON, err := json.Marshal(canonical.Policy)
 	if err != nil {
