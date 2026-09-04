@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import os
 import platform
@@ -252,10 +253,12 @@ class GrpcWorkerClient:
             keyfile=self.config.client_private_key,
         )
 
-        with socket.create_connection((host, port), timeout=timeout) as raw_socket:
-            with context.wrap_socket(raw_socket, server_hostname=server_name) as tls_socket:
-                certificate = tls_socket.getpeercert()
-                certificate_der = tls_socket.getpeercert(binary_form=True)
+        with (
+            socket.create_connection((host, port), timeout=timeout) as raw_socket,
+            context.wrap_socket(raw_socket, server_hostname=server_name) as tls_socket,
+        ):
+            certificate = tls_socket.getpeercert()
+            certificate_der = tls_socket.getpeercert(binary_form=True)
 
         expected_uri = (
             f"spiffe://{self.config.expected_trust_domain}/coordinator/{server_name}"
@@ -285,7 +288,7 @@ class GrpcWorkerClient:
         if self.config.server_certificate_sha256 is not None:
             actual = hashlib.sha256(certificate_der).hexdigest()
             expected = self.config.server_certificate_sha256.lower().replace(":", "").strip()
-            if not hashlib.compare_digest(actual, expected):
+            if not hmac.compare_digest(actual, expected):
                 raise ssl.SSLCertVerificationError(
                     "coordinator certificate SHA-256 pin mismatch"
                 )
