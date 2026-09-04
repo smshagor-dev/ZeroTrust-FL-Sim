@@ -1,7 +1,7 @@
 # Machine learning
 torch==2.14.0
 torchvision==0.29.0
-numpy>=2.3,<3.0
+numpy>=2.5.2,<3.0
 
 # RPC and Protocol Buffers
 grpcio==1.83.1
