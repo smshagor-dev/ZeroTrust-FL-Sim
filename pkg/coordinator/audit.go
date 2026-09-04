@@ -17,12 +17,14 @@ const (
 	maxAuditExportRows = 10_000
 	maxAuditRoundID    = uint64(1<<63 - 1)
 
-	AuditEventStateInitialized = "coordinator.state.initialized"
-	AuditEventStateRecovered   = "coordinator.state.recovered"
-	AuditEventNodeRegistered   = "node.registered"
-	AuditEventLeaseRenewed     = "node.lease.renewed"
-	AuditEventUpdateAccepted   = "model.update.accepted"
-	AuditEventRoundAggregated  = "model.round.aggregated"
+	AuditEventStateInitialized       = "coordinator.state.initialized"
+	AuditEventStateRecovered         = "coordinator.state.recovered"
+	AuditEventNodeRegistered         = "node.registered"
+	AuditEventLeaseRenewed           = "node.lease.renewed"
+	AuditEventUpdateAccepted         = "model.update.accepted"
+	AuditEventRoundAggregated        = "model.round.aggregated"
+	AuditEventCredentialRotated      = "registration.credential.rotated"
+	AuditEventRegistrationRevoked    = "registration.revoked"
 
 	auditOutcomeSuccess = "success"
 )
@@ -49,6 +51,9 @@ type AuditEvent struct {
 	Quorum             int       `json:"quorum,omitempty"`
 	AggregationMethod  string    `json:"aggregation_method,omitempty"`
 	LeaseExpiresUnix   int64     `json:"lease_expires_unix,omitempty"`
+	CredentialGeneration uint64  `json:"credential_generation,omitempty"`
+	TargetNodeID          string  `json:"target_node_id,omitempty"`
+	BlockedUntilUnix      int64   `json:"blocked_until_unix,omitempty"`
 }
 
 // AuditRecord is the exported append-only record. The event hash commits to
@@ -109,7 +114,7 @@ func validateAuditEvent(event AuditEvent) error {
 	if event.Outcome != auditOutcomeSuccess {
 		return fmt.Errorf("unsupported audit outcome %q", event.Outcome)
 	}
-	if len(event.NodeID) > 256 || len(event.UpdateID) > 256 || len(event.BaseModelVersion) > 512 || len(event.ModelVersion) > 512 || len(event.AggregationMethod) > 64 {
+	if len(event.NodeID) > 256 || len(event.TargetNodeID) > 256 || len(event.UpdateID) > 256 || len(event.BaseModelVersion) > 512 || len(event.ModelVersion) > 512 || len(event.AggregationMethod) > 64 {
 		return errors.New("audit event contains an oversized identifier")
 	}
 	if event.RoundID > maxAuditRoundID {
@@ -143,6 +148,14 @@ func validateAuditEvent(event AuditEvent) error {
 	case AuditEventNodeRegistered, AuditEventLeaseRenewed:
 		if event.NodeID == "" || event.RegistrationIDHash == "" || event.LeaseExpiresUnix <= 0 {
 			return errors.New("registration/lease audit event requires node, registration hash, and lease expiry")
+		}
+	case AuditEventCredentialRotated:
+		if event.NodeID == "" || event.RegistrationIDHash == "" || event.LeaseExpiresUnix <= 0 || event.CredentialGeneration == 0 {
+			return errors.New("credential rotation audit event is missing required lifecycle metadata")
+		}
+	case AuditEventRegistrationRevoked:
+		if event.NodeID == "" || event.TargetNodeID == "" || event.CredentialGeneration == 0 || event.BlockedUntilUnix <= 0 {
+			return errors.New("registration revocation audit event is missing required lifecycle metadata")
 		}
 	case AuditEventUpdateAccepted:
 		if event.NodeID == "" || event.RegistrationIDHash == "" || event.UpdateID == "" || event.UpdateSHA256 == "" || event.BaseModelVersion == "" || event.Quorum <= 0 {
