@@ -63,6 +63,7 @@ func registrationAuditEvent(req *flv1.RegisterNodeRequest, response *flv1.Regist
 	event.NodeID = req.GetNodeId()
 	event.RegistrationIDHash = hashAuditOpaqueIdentifier(response.GetRegistrationId())
 	event.LeaseExpiresUnix = response.GetLeaseExpiresUnix()
+	event.CredentialGeneration = response.GetCredentialGeneration()
 	return event
 }
 
@@ -71,6 +72,7 @@ func heartbeatAuditEvent(req *flv1.HeartbeatRequest, response *flv1.HeartbeatRes
 	event.NodeID = req.GetNodeId()
 	event.RegistrationIDHash = hashAuditOpaqueIdentifier(req.GetRegistrationId())
 	event.LeaseExpiresUnix = response.GetLeaseExpiresUnix()
+	event.CredentialGeneration = response.GetCredentialGeneration()
 	return event
 }
 
