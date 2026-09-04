@@ -6,6 +6,8 @@ import hashlib
 import io
 import os
 import platform
+import socket
+import ssl
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,8 +35,11 @@ class GrpcWorkerConfig:
     jwt_token: str | None = None
     jwt_token_file: str | None = None
     server_name_override: str | None = None
+    expected_trust_domain: str = "zerotrust-fl.local"
+    expected_server_role: str = "coordinator"
+    server_certificate_sha256: str | None = None
     timeout_seconds: float = 10.0
-    max_message_bytes: int = 64 << 20
+    max_message_bytes: int = 8 << 20
 
     def __post_init__(self) -> None:
         if not self.address.strip():
@@ -45,6 +50,14 @@ class GrpcWorkerConfig:
             raise ValueError("certificate_common_name is required")
         if bool(self.jwt_token) == bool(self.jwt_token_file):
             raise ValueError("configure exactly one of jwt_token or jwt_token_file")
+        if not self.expected_trust_domain.strip():
+            raise ValueError("expected_trust_domain is required")
+        if not self.expected_server_role.strip():
+            raise ValueError("expected_server_role is required")
+        if self.server_certificate_sha256 is not None:
+            digest = self.server_certificate_sha256.lower().replace(":", "").strip()
+            if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                raise ValueError("server_certificate_sha256 must be a SHA-256 hex digest")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if self.max_message_bytes <= 0:
@@ -69,6 +82,7 @@ class GrpcWorkerClient:
         self._pb2 = pb2
         self._pb2_grpc = pb2_grpc
         self._registration_id: str | None = None
+        self._identity_verified = False
 
         root_ca = Path(config.ca_certificate).read_bytes()
         client_cert = Path(config.client_certificate).read_bytes()
@@ -103,6 +117,9 @@ class GrpcWorkerClient:
         return self._registration_id
 
     def wait_ready(self, timeout: float | None = None) -> None:
+        if not self._identity_verified:
+            self._verify_server_identity(timeout or self.config.timeout_seconds)
+            self._identity_verified = True
         grpc.channel_ready_future(self.channel).result(
             timeout=timeout or self.config.timeout_seconds
         )
@@ -222,6 +239,57 @@ class GrpcWorkerClient:
             raise RuntimeError("worker must register before invoking this RPC")
         return self._registration_id
 
+    def _verify_server_identity(self, timeout: float) -> None:
+        host, port = _split_host_port(self.config.address)
+        server_name = self.config.server_name_override or host
+        context = ssl.create_default_context(
+            ssl.Purpose.SERVER_AUTH,
+            cafile=self.config.ca_certificate,
+        )
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        context.load_cert_chain(
+            certfile=self.config.client_certificate,
+            keyfile=self.config.client_private_key,
+        )
+
+        with socket.create_connection((host, port), timeout=timeout) as raw_socket:
+            with context.wrap_socket(raw_socket, server_hostname=server_name) as tls_socket:
+                certificate = tls_socket.getpeercert()
+                certificate_der = tls_socket.getpeercert(binary_form=True)
+
+        expected_uri = (
+            f"spiffe://{self.config.expected_trust_domain}/coordinator/{server_name}"
+        )
+        uri_sans = {
+            value
+            for kind, value in certificate.get("subjectAltName", ())
+            if kind == "URI"
+        }
+        if expected_uri not in uri_sans:
+            raise ssl.SSLCertVerificationError(
+                f"coordinator URI SAN mismatch; expected {expected_uri!r}"
+            )
+
+        expected_ou = f"role:{self.config.expected_server_role}"
+        ous = {
+            value
+            for rdn in certificate.get("subject", ())
+            for key, value in rdn
+            if key == "organizationalUnitName"
+        }
+        if expected_ou not in ous:
+            raise ssl.SSLCertVerificationError(
+                f"coordinator certificate role mismatch; expected {expected_ou!r}"
+            )
+
+        if self.config.server_certificate_sha256 is not None:
+            actual = hashlib.sha256(certificate_der).hexdigest()
+            expected = self.config.server_certificate_sha256.lower().replace(":", "").strip()
+            if not hashlib.compare_digest(actual, expected):
+                raise ssl.SSLCertVerificationError(
+                    "coordinator certificate SHA-256 pin mismatch"
+                )
+
 
 def serialize_update(update: torch.Tensor | np.ndarray) -> bytes:
     """Serialize a model delta as non-pickle NumPy ``.npy`` float32 bytes."""
@@ -236,6 +304,10 @@ def serialize_update(update: torch.Tensor | np.ndarray) -> bytes:
     else:
         array = np.ascontiguousarray(update, dtype=np.float32)
 
+    if array.ndim != 1:
+        array = array.reshape(-1)
+    if array.size == 0:
+        raise ValueError("model update must not be empty")
     if not np.isfinite(array).all():
         raise ValueError("model update contains non-finite values")
 
@@ -249,9 +321,34 @@ def deserialize_update(payload: bytes) -> np.ndarray:
 
     buffer = io.BytesIO(payload)
     array = np.load(buffer, allow_pickle=False)
+    if array.ndim != 1:
+        raise ValueError("model update payload must contain a one-dimensional vector")
     if array.dtype != np.float32:
         array = array.astype(np.float32, copy=False)
+    if array.size == 0 or not np.isfinite(array).all():
+        raise ValueError("model update payload is empty or contains non-finite values")
     return np.ascontiguousarray(array)
+
+
+def _split_host_port(address: str) -> tuple[str, int]:
+    value = address.strip()
+    if value.startswith("["):
+        closing = value.find("]")
+        if closing <= 0 or closing + 2 > len(value) or value[closing + 1] != ":":
+            raise ValueError("address must use host:port syntax")
+        host = value[1:closing]
+        port_text = value[closing + 2 :]
+    else:
+        host, separator, port_text = value.rpartition(":")
+        if not separator or not host:
+            raise ValueError("address must use host:port syntax")
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        raise ValueError("address port must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("address port must be between 1 and 65535")
+    return host, port
 
 
 def _load_protocol_modules() -> tuple[Any, Any]:
