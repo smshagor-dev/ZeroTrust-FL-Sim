@@ -4,13 +4,15 @@ on:
   pull_request:
     paths:
       - "frontend/**"
+      - "main.py"
       - "scripts/run_master_training.py"
       - ".github/workflows/frontend-dashboard.yml"
   push:
     branches: [main]
     paths:
       - "frontend/**"
-      - "scripts/run_master_training.py"
+      - "main.py"
+      - "\scripts/run_master_training.py"
       - ".github/workflows/frontend-dashboard.yml"
 
 permissions:
@@ -33,5 +35,7 @@ jobs:
       - name: Build dashboard
         working-directory: frontend
         run: npm run build
-      - name: Compile dashboard state bridge
-        run: python -m py_compile scripts/run_master_training.py
+      - name: Compile one-command dashboard integration
+        run: python -m py_compile main.py scripts/run_master_training.py
+      - name: Smoke master CLI
+        run: python main.py --help > /dev/null
