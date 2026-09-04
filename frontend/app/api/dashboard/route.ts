@@ -43,7 +43,7 @@ async function readJson<T>(file: string): Promise<T | null> {
 async function readLogs() {
   try {
     const text = await fs.readFile(LOG, "utf8");
-    return text.split(/\r?\n/).filter(Boolean).slice(-16);
+    return text.split(/\r?\n/).filter(Boolean).slice(-24);
   } catch {
     return [] as string[];
   }
@@ -51,29 +51,41 @@ async function readLogs() {
 
 async function workerStatus(benign: number, malicious: number) {
   const defs = [
-    ...Array.from({ length: benign }, (_, i) => ({ id: `benign-worker-${i + 1}`, role: "Benign" as const })),
-    ...Array.from({ length: malicious }, (_, i) => ({ id: `malicious-worker-${i + 1}`, role: "Malicious" as const })),
+    ...Array.from({ length: benign }, (_, i) => ({
+      id: `benign-worker-${i + 1}`,
+      role: "Benign" as const,
+    })),
+    ...Array.from({ length: malicious }, (_, i) => ({
+      id: `malicious-worker-${i + 1}`,
+      role: "Malicious" as const,
+    })),
   ];
-  return Promise.all(defs.map(async (worker, index) => {
-    const file = path.join(HEALTH, `${worker.id}.ready`);
-    const online = await exists(file);
-    let lastUpdate = online ? "just now" : "—";
-    if (online) {
-      try {
-        const stat = await fs.stat(file);
-        const age = Math.max(0, Math.round((Date.now() - stat.mtimeMs) / 1000));
-        lastUpdate = age < 2 ? "1s ago" : `${age}s ago`;
-      } catch {}
-    }
-    return {
-      id: `worker-${index + 1}`,
-      role: worker.role,
-      status: online ? "Online" as const : "Offline" as const,
-      lastUpdate,
-      latencyMs: [12, 15, 11, 14, 13, 16][index % 6],
-      dataSize: 1024,
-    };
-  }));
+
+  return Promise.all(
+    defs.map(async (worker, index) => {
+      const file = path.join(HEALTH, `${worker.id}.ready`);
+      const online = await exists(file);
+      let lastUpdate = online ? "just now" : "—";
+      if (online) {
+        try {
+          const stat = await fs.stat(file);
+          const age = Math.max(
+            0,
+            Math.round((Date.now() - stat.mtimeMs) / 1000),
+          );
+          lastUpdate = age < 2 ? "1s ago" : `${age}s ago`;
+        } catch {}
+      }
+      return {
+        id: `worker-${index + 1}`,
+        role: worker.role,
+        status: online ? ("Online" as const) : ("Offline" as const),
+        lastUpdate,
+        latencyMs: [12, 15, 11, 14, 13, 16][index % 6],
+        dataSize: 1024,
+      };
+    }),
+  );
 }
 
 type StateFile = {
@@ -96,43 +108,98 @@ export async function GET() {
   const live = Boolean(state);
   const benign = state?.benign_workers ?? 3;
   const malicious = state?.malicious_workers ?? 1;
-  const rounds = Array.isArray(state?.rounds) && state.rounds.length ? state.rounds : previewRounds;
+  const rounds =
+    Array.isArray(state?.rounds) && state.rounds.length
+      ? state.rounds
+      : previewRounds;
   const startedAt = state?.started_at ?? Date.now() / 1000 - 1104;
   const active = state?.active ?? true;
   const runtimeLogs = await readLogs();
-  const logs = Array.isArray(state?.logs) && state.logs.length ? state.logs : runtimeLogs;
+  const stateLogs = Array.isArray(state?.logs) ? state.logs : [];
+  const logs = [...runtimeLogs, ...stateLogs].slice(-24);
 
-  return NextResponse.json({
-    mode: live ? "live" : "preview",
-    active,
-    startedAt,
-    elapsedSeconds: Math.max(0, Math.floor(Date.now() / 1000 - startedAt)),
-    currentRound: state?.current_round ?? (live ? rounds.length : 12),
-    totalRounds: state?.total_rounds ?? (live ? Math.max(rounds.length, 5) : 50),
-    attack: state?.attack ?? "gaussian",
-    aggregator: state?.aggregator ?? "median",
-    device: state?.device ?? "cpu",
-    benignWorkers: benign,
-    maliciousWorkers: malicious,
-    rounds,
-    workers: live ? await workerStatus(benign, malicious) : [
-      { id: "worker-1", role: "Benign", status: "Online", lastUpdate: "2s ago", latencyMs: 12, dataSize: 1024 },
-      { id: "worker-2", role: "Benign", status: "Online", lastUpdate: "1s ago", latencyMs: 15, dataSize: 1024 },
-      { id: "worker-3", role: "Benign", status: "Online", lastUpdate: "3s ago", latencyMs: 11, dataSize: 1024 },
-      { id: "worker-4", role: "Malicious", status: "Online", lastUpdate: "2s ago", latencyMs: 14, dataSize: 1024 },
-    ],
-    logs,
-  }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(
+    {
+      mode: live ? "live" : "preview",
+      active,
+      startedAt,
+      elapsedSeconds: Math.max(
+        0,
+        Math.floor(Date.now() / 1000 - startedAt),
+      ),
+      currentRound: state?.current_round ?? (live ? rounds.length : 12),
+      totalRounds:
+        state?.total_rounds ?? (live ? Math.max(rounds.length, 5) : 50),
+      attack: state?.attack ?? "gaussian",
+      aggregator: state?.aggregator ?? "median",
+      device: state?.device ?? "cpu",
+      benignWorkers: benign,
+      maliciousWorkers: malicious,
+      rounds,
+      workers: live
+        ? await workerStatus(benign, malicious)
+        : [
+            {
+              id: "worker-1",
+              role: "Benign",
+              status: "Online",
+              lastUpdate: "2s ago",
+              latencyMs: 12,
+              dataSize: 1024,
+            },
+            {
+              id: "worker-2",
+              role: "Benign",
+              status: "Online",
+              lastUpdate: "1s ago",
+              latencyMs: 15,
+              dataSize: 1024,
+            },
+            {
+              id: "worker-3",
+              role: "Benign",
+              status: "Online",
+              lastUpdate: "3s ago",
+              latencyMs: 11,
+              dataSize: 1024,
+            },
+            {
+              id: "worker-4",
+              role: "Malicious",
+              status: "Online",
+              lastUpdate: "2s ago",
+              latencyMs: 14,
+              dataSize: 1024,
+            },
+          ],
+      logs,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({})) as { command?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    command?: string;
+  };
   if (body.command !== "stop") {
-    return NextResponse.json({ ok: false, error: "unsupported command" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "unsupported command" },
+      { status: 400 },
+    );
   }
+
   await fs.mkdir(RUNTIME, { recursive: true });
   const tmp = `${COMMAND}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ command: "stop", created_at: Date.now() / 1000 }, null, 2), "utf8");
+  await fs.writeFile(
+    tmp,
+    JSON.stringify(
+      { command: "stop", created_at: Date.now() / 1000 },
+      null,
+      2,
+    ),
+    "utf8",
+  );
   await fs.rename(tmp, COMMAND);
   return NextResponse.json({ ok: true });
 }
