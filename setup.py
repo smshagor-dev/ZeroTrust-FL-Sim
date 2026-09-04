@@ -103,7 +103,7 @@ setup(
     extras_require={
         "vision": ["torchvision==0.29.0"],
         "proto": ["grpcio-tools==1.83.1"],
-        "benchmark": ["cryptography>=45,<50", "matplotlib>=3.10,<4"],
+        "benchmark": ["cryptography>=45,<51", "matplotlib>=3.10,<4"],
         "tenseal": ["tenseal==0.3.17"],
     },
     ext_modules=[CMakeExtension("zerotrust_fl_cpp")],
