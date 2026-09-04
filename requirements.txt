@@ -37,4 +37,4 @@ pytest-cov>=6,<8
 
 # Development quality
 ruff>=0.12,<1
-mypy>=1.15,<2
+mypy>=2.3.1,<3
