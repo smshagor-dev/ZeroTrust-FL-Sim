@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 	"time"
 )
@@ -16,6 +15,7 @@ import (
 const (
 	auditSchemaVersion = 1
 	maxAuditExportRows = 10_000
+	maxAuditRoundID    = uint64(1<<63 - 1)
 
 	AuditEventStateInitialized = "coordinator.state.initialized"
 	AuditEventStateRecovered   = "coordinator.state.recovered"
@@ -112,7 +112,7 @@ func validateAuditEvent(event AuditEvent) error {
 	if len(event.NodeID) > 256 || len(event.UpdateID) > 256 || len(event.BaseModelVersion) > 512 || len(event.ModelVersion) > 512 || len(event.AggregationMethod) > 64 {
 		return errors.New("audit event contains an oversized identifier")
 	}
-	if event.RoundID > math.MaxInt64 {
+	if event.RoundID > maxAuditRoundID {
 		return errors.New("audit round_id exceeds PostgreSQL BIGINT range")
 	}
 	if event.SampleCount > maxReportedSampleCount {
