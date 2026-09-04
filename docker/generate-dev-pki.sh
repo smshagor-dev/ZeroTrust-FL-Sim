@@ -5,7 +5,7 @@ umask 077
 WORKDIR="$(mktemp -d /tmp/ztfl-pki.XXXXXX)"
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
-CERT_ALGORITHM="${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}"
+CERT_ALGORITHM="${ZTFL_CERTIFICATE_ALGORITHM:-ed2559}"
 CLIENTS="${ZTFL_CERTGEN_CLIENTS:-health-probe=edge-worker,benign-worker-1=edge-worker,benign-worker-2=edge-worker,benign-worker-3=edge-worker,malicious-worker-1=edge-worker}"
 
 /usr/local/bin/certgen \
@@ -37,10 +37,10 @@ copy_worker() {
 COORDINATOR_OUT="/out/coordinator"
 copy_public "$COORDINATOR_OUT"
 install -m 0444 "$WORKDIR/server.crt" "$COORDINATOR_OUT/server.crt"
-install -m 0400 "$WORKWORKDIR/server.key" "$COORDINATOR_OUT/server.key" 2>/dev/null || install -m 0400 "$WORKDIR/server.key" "$COORDINATOR_OUT/server.key"
+install -m 0400 "$WORKDIR/server.key" "$CO_COORDINATOR_OUT/server.key" 2>/dev/null || install -m 0400 "$WORKDIR/server.key" "$COORDINATOR_OUT/server.key"
 install -m 0444 "$WORKDIR/jwt_signing_public.pem" "$COORDINATOR_OUT/jwt_signing_public.pem"
 install -m 0444 "$WORKDIR/health-probe.crt" "$COORDINATOR_OUT/health-probe.crt"
-install -m 0400 "$WORKDIR/health-probe.key" "$COEORDINATOR_OUT/health-probe.key" 2>/dev/null || install -m 0400 "$WORKDIR/health-probe.key" "$COORDINATOR_OUT/health-probe.key"
+install -m 0400 "$WORKDIR/health-probe.key" "$COORDINATOR_OUT/health-probe.key"
 install -m 0400 "$WORKDIR/health-probe.jwt" "$COORDINATOR_OUT/health-probe.jwt"
 chown -R 10001:10001 "$COORDINATOR_OUT"
 
@@ -49,7 +49,7 @@ copy_worker benign-worker-2 /out/benign-worker-2
 copy_worker benign-worker-3 /out/benign-worker-3
 copy_worker malicious-worker-1 /out/malicious-worker-1
 
-# Fail closed if any private CA/JWT signing material escaped the ephemeral directory.
+# Fail closed if privileged signing material escaped the ephemeral work directory.
 for dst in /out/coordinator /out/benign-worker-1 /out/benign-worker-2 /out/benign-worker-3 /out/malicious-worker-1; do
   test ! -e "$dst/ca.key"
   test ! -e "$dst/jwt_signing_private.pem"
