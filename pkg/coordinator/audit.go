@@ -17,14 +17,14 @@ const (
 	maxAuditExportRows = 10_000
 	maxAuditRoundID    = uint64(1<<63 - 1)
 
-	AuditEventStateInitialized       = "coordinator.state.initialized"
-	AuditEventStateRecovered         = "coordinator.state.recovered"
-	AuditEventNodeRegistered         = "node.registered"
-	AuditEventLeaseRenewed           = "node.lease.renewed"
-	AuditEventUpdateAccepted         = "model.update.accepted"
-	AuditEventRoundAggregated        = "model.round.aggregated"
-	AuditEventCredentialRotated      = "registration.credential.rotated"
-	AuditEventRegistrationRevoked    = "registration.revoked"
+	AuditEventStateInitialized    = "coordinator.state.initialized"
+	AuditEventStateRecovered      = "coordinator.state.recovered"
+	AuditEventNodeRegistered      = "node.registered"
+	AuditEventLeaseRenewed        = "node.lease.renewed"
+	AuditEventUpdateAccepted      = "model.update.accepted"
+	AuditEventRoundAggregated     = "model.round.aggregated"
+	AuditEventCredentialRotated   = "registration.credential.rotated"
+	AuditEventRegistrationRevoked = "registration.revoked"
 
 	auditOutcomeSuccess = "success"
 )
@@ -34,26 +34,26 @@ const (
 // not contain request nonces, JWTs, model/update payloads, private keys, or
 // plaintext registration bearer identifiers.
 type AuditEvent struct {
-	SchemaVersion      int       `json:"schema_version"`
-	OccurredAt         time.Time `json:"occurred_at"`
-	Type               string    `json:"type"`
-	Outcome            string    `json:"outcome"`
-	NodeID             string    `json:"node_id,omitempty"`
-	RegistrationIDHash string    `json:"registration_id_hash,omitempty"`
-	UpdateID           string    `json:"update_id,omitempty"`
-	UpdateSHA256       string    `json:"update_sha256,omitempty"`
-	BaseModelVersion   string    `json:"base_model_version,omitempty"`
-	RoundID            uint64    `json:"round_id"`
-	ModelVersion       string    `json:"model_version,omitempty"`
-	ModelSHA256        string    `json:"model_sha256,omitempty"`
-	SampleCount        uint64    `json:"sample_count,omitempty"`
-	PendingUpdates     int       `json:"pending_updates,omitempty"`
-	Quorum             int       `json:"quorum,omitempty"`
-	AggregationMethod  string    `json:"aggregation_method,omitempty"`
-	LeaseExpiresUnix   int64     `json:"lease_expires_unix,omitempty"`
-	CredentialGeneration uint64  `json:"credential_generation,omitempty"`
-	TargetNodeID          string  `json:"target_node_id,omitempty"`
-	BlockedUntilUnix      int64   `json:"blocked_until_unix,omitempty"`
+	SchemaVersion        int       `json:"schema_version"`
+	OccurredAt           time.Time `json:"occurred_at"`
+	Type                 string    `json:"type"`
+	Outcome              string    `json:"outcome"`
+	NodeID               string    `json:"node_id,omitempty"`
+	RegistrationIDHash   string    `json:"registration_id_hash,omitempty"`
+	UpdateID             string    `json:"update_id,omitempty"`
+	UpdateSHA256         string    `json:"update_sha256,omitempty"`
+	BaseModelVersion     string    `json:"base_model_version,omitempty"`
+	RoundID              uint64    `json:"round_id"`
+	ModelVersion         string    `json:"model_version,omitempty"`
+	ModelSHA256          string    `json:"model_sha256,omitempty"`
+	SampleCount          uint64    `json:"sample_count,omitempty"`
+	PendingUpdates       int       `json:"pending_updates,omitempty"`
+	Quorum               int       `json:"quorum,omitempty"`
+	AggregationMethod    string    `json:"aggregation_method,omitempty"`
+	LeaseExpiresUnix     int64     `json:"lease_expires_unix,omitempty"`
+	CredentialGeneration uint64    `json:"credential_generation,omitempty"`
+	TargetNodeID         string    `json:"target_node_id,omitempty"`
+	BlockedUntilUnix     int64     `json:"blocked_until_unix,omitempty"`
 }
 
 // AuditRecord is the exported append-only record. The event hash commits to
