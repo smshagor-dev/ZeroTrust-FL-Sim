@@ -112,6 +112,27 @@ jobs:
         run: docker compose up -d --wait --wait-timeout 240
       - name: Inspect cluster
         run: docker compose ps
+      - name: Verify durable coordinator restart recovery
+        run: |
+          STATE_PATH=/var/lib/zerotrust-fl/coordinator-state.json
+          docker compose exec -T coordinator test -s "$STATE_PATH"
+          docker compose stop benign-worker-1 benign-worker-2 benign-worker-3 malicious-worker-1
+          docker compose cp "coordinator:$STATE_PATH" /tmp/coordinator-state-before.json
+          docker compose restart coordinator
+          docker compose up -d --wait --wait-timeout 120 coordinator
+          docker compose cp "coordinator:$STATE_PATH" /tmp/coordinator-state-after.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          before = json.loads(Path("/tmp/coordinator-state-before.json").read_text())
+          after = json.loads(Path("/tmp/coordinator-state-after.json").read_text())
+          for key in ("schema_version", "policy", "model_proto", "pending_updates"):
+              if before.get(key) != after.get(key):
+                  raise SystemExit(f"durable coordinator restart changed {key}")
+          PY
+          docker compose start benign-worker-1 benign-worker-2 benign-worker-3 malicious-worker-1
+          docker compose up -d --wait --wait-timeout 120
       - name: Run benchmark smoke suite
         run: >-
           docker compose run --rm --no-deps --entrypoint python benign-worker-1
