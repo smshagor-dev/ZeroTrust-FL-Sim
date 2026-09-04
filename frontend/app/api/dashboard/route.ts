@@ -24,11 +24,20 @@ const previewRounds = Array.from({ length: 12 }, (_, i) => ({
 }));
 
 async function exists(file: string) {
-  try { await fs.access(unknown); return true; } catch { return false; }
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function readJson<T>(file: string): Promise<T | null> {
-  try { return JSON.parse(await fs.readFile(file, "utf8")) as T; } catch { return null; }
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8")) as T;
+  } catch {
+    return null;
+  }
 }
 
 async function readLogs() {
