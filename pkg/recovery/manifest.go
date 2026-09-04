@@ -17,11 +17,11 @@ import (
 
 const (
 	BundleSchemaVersion = 1
-	manifestFileName    = "manifest.json"
-	manifestChecksum   = "manifest.sha256"
-	postgresDumpPath   = "postgres.dump"
-	auditExportPath    = "audit.ndjson"
-	maxManifestBytes   = 1 << 20
+	manifestFileName     = "manifest.json"
+	manifestChecksum     = "manifest.sha256"
+	postgresDumpPath     = "postgres.dump"
+	auditExportPath      = "audit.ndjson"
+	maxManifestBytes     = 1 << 20
 )
 
 type MigrationManifest struct {
