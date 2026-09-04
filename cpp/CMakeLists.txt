@@ -7,7 +7,7 @@ project(
 )
 
 option(ZTFL_ENABLE_OPENMP "Enable OpenMP parallel aggregation" ON)
-option(ZTFL_NATIVE_ARCH "Optimize generated C++ code for the local CPU" ON)
+option(ZTFL_NATIVE_ARCH "Optimize generated C++ code for the local CPU" OFF)
 option(ZTFL_ENABLE_CKKS "Enable Microsoft SEAL CKKS encrypted aggregation" ON)
 set(ZTFL_ENABLE_CUDA "AUTO" CACHE STRING "Enable CUDA aggregation: AUTO, ON, or OFF")
 set_property(CACHE ZTFL_ENABLE_CUDA PROPERTY STRINGS AUTO ON OFF)
