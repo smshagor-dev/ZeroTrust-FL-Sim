@@ -22,6 +22,9 @@
   <a href="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/workflows/ci.yml">
     <img src="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/workflows/ci.yml/badge.svg" alt="CI">
   </a>
+  <a href="https://github.com/smshagor-dev/ZeroTrust-FL-Sim/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-D22128.svg" alt="Apache License 2.0">
+  </a>
 </p>
 
 ---
@@ -685,6 +688,7 @@ ZeroTrust-FL-Sim/
     ├── test_cpp_aggregator.py
     ├── test_fl_engine.py
     ├── test_observability.py
+    ├── test_privacy.py
     └── test_privacy.py
 ```
 
@@ -925,9 +929,23 @@ Record at minimum:
 
 ---
 
+# Contributing, Support, and Security
+
+Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development, testing, reproducibility, and pull-request requirements, and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) for community expectations.
+
+For technical support and reproducibility reports, see [`SUPPORT.md`](SUPPORT.md). Security vulnerabilities must not be disclosed in public issues; follow the private reporting process in [`SECURITY.md`](SECURITY.md).
+
+---
+
+# Citation
+
+If you use ZeroTrust-FL-Sim in research, cite the software and record the exact tag or Git commit used for the experiment. Machine-readable citation metadata is provided in [`CITATION.cff`](CITATION.cff).
+
+---
+
 # License
 
-This repository currently does **not** declare a repository license. No open-source license should be inferred from public source availability alone.
+ZeroTrust-FL-Sim is licensed under the **Apache License 2.0**. See [`LICENSE`](LICENSE) for the full license terms and [`NOTICE`](NOTICE) for project attribution notices. Third-party dependencies and bundled components remain subject to their respective licenses.
 
 ---
 
