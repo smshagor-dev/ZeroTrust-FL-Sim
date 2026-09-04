@@ -53,7 +53,10 @@ def _log(message: str) -> None:
 
 
 def _state(active: bool) -> dict[str, Any]:
-    malicious = max(0, min(_META.clients, round(_META.clients * _META.malicious_fraction)))
+    malicious = max(
+        0,
+        min(_META.clients, round(_META.clients * _META.malicious_fraction)),
+    )
     return {
         "active": active,
         "started_at": _STARTED_AT,
@@ -73,12 +76,11 @@ def _state(active: bool) -> dict[str, Any]:
 def _write_state(*, active: bool) -> None:
     RUNTIME.mkdir(parents=True, exist_ok=True)
     tmp = STATE_FILE.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(_writeable_state(active), indent=2, sort_keys=True), encoding="utf-8")
+    tmp.write_text(
+        json.dumps(_state(active), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     os.replace(tmp, STATE_FILE)
-
-
-def _writeable_state(active: bool) -> dict[str, Any]:
-    return _state(active)
 
 
 def _consume_stop_request() -> bool:
@@ -105,8 +107,10 @@ def _emit_round(metrics: Any) -> None:
     _HISTORY.append(payload)
     _log(
         "[CPP-AGGREGATOR] "
-        f"Round {metrics.round_id}/{_META.rounds} {metrics.aggregation_method} complete; "
-        f"malicious={metrics.malicious_results}, mitigation={metrics.mitigation_score}"
+        f"Round {metrics.round_id}/{_META.rounds} "
+        f"{metrics.aggregation_method} complete; "
+        f"malicious={metrics.malicious_results}, "
+        f"mitigation={metrics.mitigation_score}"
     )
     if metrics.attack_mitigated is not None:
         verdict = "mitigated" if metrics.attack_mitigated else "not mitigated"
@@ -135,7 +139,7 @@ class StreamingObservableAsyncFederatedCoordinator(_BaseObservableCoordinator):
         if _consume_stop_request():
             _log("[DASHBOARD] Stop requested by web dashboard")
             _write_state(active=False)
-            raise SystemExit(0)
+            raise System vars
         metrics = super()._run_round(round_id)
         _emit_round(metrics)
         return metrics
@@ -149,7 +153,9 @@ def main() -> None:
     )
     _write_state(active=True)
     base.AsyncFederatedCoordinator = StreamingAsyncFederatedCoordinator
-    base.ObservableAsyncFederatedCoordinator = StreamingObservableAsyncFederatedCoordinator
+    base.ObservableAsyncFederatedCoordinator = (
+        StreamingObservableAsyncFederatedCoordinator
+    )
     try:
         base.main()
     finally:
