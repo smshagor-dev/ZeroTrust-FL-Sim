@@ -139,7 +139,7 @@ class StreamingObservableAsyncFederatedCoordinator(_BaseObservableCoordinator):
         if _consume_stop_request():
             _log("[DASHBOARD] Stop requested by web dashboard")
             _write_state(active=False)
-            raise System vars
+            raise SystemExit(0)
         metrics = super()._run_round(round_id)
         _emit_round(metrics)
         return metrics
