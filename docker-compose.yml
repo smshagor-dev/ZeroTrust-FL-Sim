@@ -32,7 +32,9 @@ services:
     user: "0:0"
     entrypoint: ["/bin/sh", "/usr/local/bin/generate-dev-pki.sh"]
     environment:
-      ZTFL_CERTIFICATE_ALGORITHM: ${ZTFL_CERTIFICATE_ALGORITHM:-ed25519}
+      # ECDSA P-256 interoperates with both Go crypto/tls and grpcio's
+      # bundled BoringSSL. Ed25519/ML-DSA remain explicit opt-in modes.
+      ZTFL_CERTIFICATE_ALGORITHM: ${ZTFL_CERTIFICATE_ALGORITHM:-ecdsa-p256}
       ZTFL_SERVER_NAME: coordinator
       ZTFL_TRUST_DOMAIN: zerotrust-fl.local
       ZTFL_TOKEN_ISSUER: zerotrust-fl-sim
