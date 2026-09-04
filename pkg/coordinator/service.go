@@ -163,7 +163,7 @@ func (s *Service) Heartbeat(ctx context.Context, req *flv1.HeartbeatRequest) (*f
 	}
 
 	model := s.currentModel()
-	return &flm1.HeartbeatResponse{
+	return &flv1.HeartbeatResponse{
 		Accepted:            true,
 		ServerTimeUnix:      time.Now().UTC().Unix(),
 		CurrentModelVersion: model.GetModelVersion(),
@@ -404,7 +404,7 @@ func validateMetrics(metrics *flv1.LocalUpdateMetrics) error {
 	}
 	for _, norm := range metrics.GetGradientNorms() {
 		if norm < 0 || math.IsNaN(norm) || math.IsInf(norm, 0) {
-			return fmt.Errorf("gradient norms must be finite and non-negative")
+			return errors.New("gradient norms must be finite and non-negative")
 		}
 	}
 	return nil
