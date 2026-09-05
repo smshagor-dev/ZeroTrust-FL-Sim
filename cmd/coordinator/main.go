@@ -36,6 +36,7 @@ func main() {
 		minUpdates             = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
 		maxUpdatesPerMinute    = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
 		aggregationMethod      = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
+		modelID                = flag.String("model-id", envString("ZTFL_MODEL_ID", coordinator.DefaultModelID), "immutable model identity exposed by the stable network envelope")
 		experimentID           = flag.String("experiment-id", envString("ZTFL_EXPERIMENT_ID", "default"), "immutable durable experiment identifier")
 		experimentConfigSHA256 = flag.String("experiment-config-sha256", envString("ZTFL_EXPERIMENT_CONFIG_SHA256", ""), "optional lowercase SHA-256 of the canonical full experiment configuration")
 		stateFile              = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; mutually exclusive with PostgreSQL")
@@ -192,6 +193,11 @@ func main() {
 		logger.Error("configure or recover coordinator service", "state_backend", stateBackend, "error", err)
 		os.Exit(1)
 	}
+	service, err = coordinator.NewEnvelopeService(service, *modelID)
+	if err != nil {
+		logger.Error("configure model envelope", "model_id", *modelID, "error", err)
+		os.Exit(1)
+	}
 	durableStateEnabled := stateBackend != "volatile"
 
 	grpcServer := grpc.NewServer(
@@ -234,6 +240,8 @@ func main() {
 			"min_updates", *minUpdates,
 			"max_updates_per_minute", *maxUpdatesPerMinute,
 			"aggregation_method", *aggregationMethod,
+			"model_protocol_version", coordinator.ModelProtocolVersion,
+			"model_id", *modelID,
 			"durable_state", durableStateEnabled,
 			"state_backend", stateBackend,
 			"experiment_id", *experimentID,
