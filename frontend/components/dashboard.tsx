@@ -168,7 +168,7 @@ function pathFor(values: number[], width: number, height: number, padding = 8, m
 }
 
 function EmptyData({ text }: { text: string }) {
-  return <div className="data-empty">{text}</div>;
+  return <div className="data-empty" style={{ padding: "32px 8px", textAlign: "center", opacity: 0.7 }}>{text}</div>;
 }
 
 function ChartGrid({ children, yLabels = ["100", "80", "60", "40", "20", "0"], xLabel = "Round" }: { children: ReactNode; yLabels?: string[]; xLabel?: string }) {
@@ -214,7 +214,7 @@ function ResourceChart({ samples }: { samples: SystemSample[] }) {
   const cpu = recent.map((sample) => sample.cpuPercent);
   const memory = recent.map((sample) => sample.memoryPercent);
   const gpu = recent.flatMap((sample) => sample.gpuMemoryPercent === null ? [] : [sample.gpuMemoryPercent]);
-  return <div className="card chart-card resource-card" id="system"><div className="panel-heading"><div className="panel-title">Resource Usage</div><div className="legend"><span className="blue">CPU</span><span className="green">Memory</span>{gpu.length > 0 && <span className="purple">GPU Memory</span>}</div></div><ChartGrid xLabel="Live sample">
+  return <div className="card chart-card resource-card" id="system"><div className="panel-heading"><div className="panel-title">Resource Usage</div><div className="legend"><span className="blue">CPU</span><span className="green">Memory</span>{gpu.length > 0 && <span style={{ color: "#8268ff" }}>GPU Memory</span>}</div></div><ChartGrid xLabel="Live sample">
     <path d={pathFor(cpu, 560, 210, 36, 0, 100)} className="line blue-line"/>
     <path d={pathFor(memory, 560, 210, 36, 0, 100)} className="line green-line"/>
     {gpu.length > 0 && <path d={pathFor(gpu, 560, 210, 36, 0, 100)} className="line purple-line"/>}
@@ -231,7 +231,8 @@ function Topology({ workers }: { workers: Worker[] }) {
 }
 
 function WorkerTable({ workers }: { workers: Worker[] }) {
-  return <div className="card workers-card" id="workers"><div className="panel-title">Worker Status</div>{workers.length === 0 ? <EmptyData text="No worker process data available yet"/> : <div className="worker-table"><div className="worker-row worker-head"><span>ID</span><span>Role</span><span>Status</span><span>Last Update</span><span>Sim. Latency</span><span>Samples</span><span>Loss</span></div>{workers.map((worker) => <div className="worker-row" key={worker.id}><span className="worker-id"><i className={`status-dot ${worker.status === "Online" ? "green" : "red"}`}></i>{worker.id}</span><span><b className={`pill ${worker.role === "Malicious" ? "danger" : "benign"}`}>{worker.role}</b></span><span><b className={`pill ${worker.status === "Online" ? "online" : "danger"}`}><i></i>{worker.status}</b></span><span>{formatAge(worker.lastUpdateAt)}</span><span>{worker.latencyMs === null ? "—" : `${worker.latencyMs} ms`}</span><span>{worker.dataSize.toLocaleString("en-US")}</span><span>{worker.loss === null ? "—" : worker.loss.toFixed(4)}</span></div>)}</div>}</div>;
+  const columns = { gridTemplateColumns: "1.25fr 1fr 1fr 1.2fr 1fr .85fr .85fr" };
+  return <div className="card workers-card" id="workers"><div className="panel-title">Worker Status</div>{workers.length === 0 ? <EmptyData text="No worker process data available yet"/> : <div className="worker-table"><div className="worker-row worker-head" style={columns}><span>ID</span><span>Role</span><span>Status</span><span>Last Update</span><span>Sim. Latency</span><span>Samples</span><span>Loss</span></div>{workers.map((worker) => <div className="worker-row" style={columns} key={worker.id}><span className="worker-id"><i className={`status-dot ${worker.status === "Online" ? "green" : "red"}`}></i>{worker.id}</span><span><b className={`pill ${worker.role === "Malicious" ? "danger" : "benign"}`}>{worker.role}</b></span><span><b className={`pill ${worker.status === "Online" ? "online" : "danger"}`}><i></i>{worker.status}</b></span><span>{formatAge(worker.lastUpdateAt)}</span><span>{worker.latencyMs === null ? "—" : `${worker.latencyMs} ms`}</span><span>{worker.dataSize.toLocaleString("en-US")}</span><span>{worker.loss === null ? "—" : worker.loss.toFixed(4)}</span></div>)}</div>}</div>;
 }
 
 function Logs({ logs }: { logs: string[] }) {
@@ -239,7 +240,8 @@ function Logs({ logs }: { logs: string[] }) {
 }
 
 function LiveConfiguration({ data }: { data: DashboardPayload }) {
-  return <div className="card controls-card" id="settings"><div className="control-title">Live Configuration</div><div className="control-grid three"><label>Attack<input value={data.attack ?? "—"} readOnly/></label><label>Aggregator<input value={data.aggregator ?? "—"} readOnly/></label><label>Device<input value={data.device ?? "—"} readOnly/></label></div><div className="control-title training-title">Training State</div><div className="control-grid three"><label>Total Rounds<input value={data.totalRounds ?? "—"} readOnly/></label><label>Benign Workers<input value={data.benignWorkers} readOnly/></label><label>Malicious Workers<input value={data.maliciousWorkers} readOnly/></label></div></div>;
+  const unavailable = "—";
+  return <div className="card controls-card" id="settings"><div className="control-title">Live Configuration</div><div className="control-grid three"><label>Attack<input value={data.available ? (data.attack ?? unavailable) : unavailable} readOnly/></label><label>Aggregator<input value={data.available ? (data.aggregator ?? unavailable) : unavailable} readOnly/></label><label>Device<input value={data.available ? (data.device ?? unavailable) : unavailable} readOnly/></label></div><div className="control-title training-title">Training State</div><div className="control-grid three"><label>Total Rounds<input value={data.available ? (data.totalRounds ?? unavailable) : unavailable} readOnly/></label><label>Benign Workers<input value={data.available ? data.benignWorkers : unavailable} readOnly/></label><label>Malicious Workers<input value={data.available ? data.maliciousWorkers : unavailable} readOnly/></label></div></div>;
 }
 
 export default function Dashboard() {
@@ -314,14 +316,14 @@ export default function Dashboard() {
 
   return <div className="dashboard-shell">
     <header className="topbar"><div className="brand"><ShieldLogo/><div><h1>ZeroTrust-FL-Sim</h1><p>Secure <i/> Private <i/> Resilient <i/> Scalable</p></div></div><div className="top-actions"><div className="status-chip"><span className={`pulse ${data.active ? "on" : ""}`}></span>{!data.available ? "Live data unavailable" : data.active ? "Training Active" : "Training Idle"}</div><div className="header-chip">Round {data.currentRound ?? "—"} / {data.totalRounds ?? "—"}</div><div className="header-chip"><Icon name="clock" size={18}/>{data.available ? fmtDuration(elapsed) : "—"}</div><button className="stop-button" onClick={stop} disabled={stopping || !data.active}><Icon name="stop" size={17}/>{stopping ? "Stopping…" : "Stop Training"}</button></div></header>
-    <aside className="sidebar"><nav>{NAV.map(([id, label, icon]) => <button key={id} className={activeNav === id ? "active" : ""} onClick={() => setActiveNav(id)}><Icon name={icon} size={21}/><span>{label}</span></button>)}</nav><div className="sidebar-footer"><strong>ZeroTrust-FL-Sim</strong><p>Live federated learning telemetry</p><div className="operational"><i className={data.available ? "" : "offline"}></i>{data.available ? `State updated ${formatAge(data.updatedAt)}` : "Waiting for runtime state"}</div></div></aside>
+    <aside className="sidebar"><nav>{NAV.map(([id, label, icon]) => <button key={id} className={activeNav === id ? "active" : ""} onClick={() => setActiveNav(id)}><Icon name={icon} size={21}/><span>{label}</span></button>)}</nav><div className="sidebar-footer"><strong>ZeroTrust-FL-Sim</strong><p>Live federated learning telemetry</p><div className="operational">{data.available && <i/>}{data.available ? `State updated ${formatAge(data.updatedAt)}` : "Waiting for runtime state"}</div></div></aside>
     <main className="content">
-      {!data.available && <div className="card live-data-banner">No simulator state is available. Start the training stack to populate this dashboard. No preview or synthetic values are displayed.</div>}
+      {!data.available && <div className="card live-data-banner" style={{ padding: "12px 16px", marginBottom: 12 }}>No simulator state is available. Start the training stack to populate this dashboard. No preview or synthetic values are displayed.</div>}
       {stopNotice && <div className="toast">{stopNotice}</div>}
       <section className="kpi-grid">
         <Kpi icon="target" title="Global Accuracy" value={accuracy === null ? "—" : `${accuracy.toFixed(2)}%`} trend={accuracyDelta === null ? undefined : `${accuracyDelta >= 0 ? "↑" : "↓"} ${accuracyDelta >= 0 ? "+" : ""}${accuracyDelta.toFixed(2)}%`} points={sparkAccuracy}/>
         <Kpi icon="loss" title="Global Loss" value={loss === null ? "—" : loss.toFixed(3)} trend={lossDelta === null ? undefined : `${lossDelta <= 0 ? "↓" : "↑"} ${lossDelta >= 0 ? "+" : ""}${lossDelta.toFixed(3)}`} tone="green" points={sparkLoss}/>
-        <div className="card kpi-card active-workers"><div className="kpi-icon"><Icon name="workers" size={30}/></div><div className="kpi-copy"><div className="kpi-title">Active Workers</div><div className="kpi-value">{data.available ? `${onlineWorkers} / ${configuredWorkers}` : "—"}</div><div className="kpi-sub">{data.available ? `${data.benignWorkers} benign, ${data.maliciousWorkers} malicious` : "No runtime worker data"}</div></div><div className="worker-progress"><div style={{ width: `${configuredWorkers ? onlineWorkers / configuredWorkers * 100 : 0}%` }}></div></div></div>
+        <div className="card kpi-card active-workers"><div className="kpi-icon"><Icon name="workers" size={30}/></div><div className="kpi-copy"><div className="kpi-title">Active Workers</div><div className="kpi-value">{data.available ? `${onlineWorkers} / ${configuredWorkers}` : "—"}</div><div className="kpi-sub">{data.available ? `${data.benignWorkers} benign, ${data.maliciousWorkers} malicious` : "No runtime worker data"}</div></div><div className="worker-progress"><div style={{ width: `${data.available && configuredWorkers ? onlineWorkers / configuredWorkers * 100 : 0}%` }}></div></div></div>
         <Kpi icon="shield" title="Mitigation Rate" value={mitigation === null ? "—" : `${(mitigation * 100).toFixed(1)}%`} tone="green" points={mitigationPoints}/>
         <Kpi icon="clock" title="Avg. Round Time" value={avgRound === null ? "—" : `${avgRound.toFixed(1)}s`} points={sparkTime}/>
       </section>
