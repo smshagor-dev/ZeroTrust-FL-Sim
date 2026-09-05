@@ -11,83 +11,25 @@ const RUNTIME = path.join(ROOT, "tmp", "orchestrator");
 const STATE = path.join(RUNTIME, "dashboard-state.json");
 const COMMAND = path.join(RUNTIME, "dashboard-command.json");
 const LOG = path.join(RUNTIME, "dashboard.log");
-const HEALTH = path.join(RUNTIME, "health");
 
-const previewRounds = Array.from({ length: 12 }, (_, i) => ({
-  round_id: i + 1,
-  mean_client_loss: 1.7 * Math.exp(-i / 3.8) + 0.18,
-  evaluation_loss: 1.35 * Math.exp(-i / 3.2) + 0.17,
-  evaluation_accuracy: 0.18 + 0.74 * (1 - Math.exp(-i / 4.8)),
-  malicious_results: 1,
-  mitigation_score: 0.86 + i * 0.01,
-  attack_mitigated: true,
-  round_duration_ms: 12000 + ((i % 4) - 1) * 700,
-}));
+type WorkerState = {
+  id?: string;
+  role?: "Benign" | "Malicious";
+  status?: "Online" | "Offline";
+  last_update_at?: number | null;
+  latency_ms?: number | null;
+  data_size?: number;
+  training_duration_ms?: number | null;
+  loss?: number | null;
+  last_round?: number | null;
+};
 
-async function exists(file: string) {
-  try {
-    await fs.access(file);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readJson<T>(file: string): Promise<T | null> {
-  try {
-    return JSON.parse(await fs.readFile(file, "utf8")) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function readLogs() {
-  try {
-    const text = await fs.readFile(LOG, "utf8");
-    return text.split(/\r?\n/).filter(Boolean).slice(-24);
-  } catch {
-    return [] as string[];
-  }
-}
-
-async function workerStatus(benign: number, malicious: number) {
-  const defs = [
-    ...Array.from({ length: benign }, (_, i) => ({
-      id: `benign-worker-${i + 1}`,
-      role: "Benign" as const,
-    })),
-    ...Array.from({ length: malicious }, (_, i) => ({
-      id: `malicious-worker-${i + 1}`,
-      role: "Malicious" as const,
-    })),
-  ];
-
-  return Promise.all(
-    defs.map(async (worker, index) => {
-      const file = path.join(HEALTH, `${worker.id}.ready`);
-      const online = await exists(file);
-      let lastUpdate = online ? "just now" : "—";
-      if (online) {
-        try {
-          const stat = await fs.stat(file);
-          const age = Math.max(
-            0,
-            Math.round((Date.now() - stat.mtimeMs) / 1000),
-          );
-          lastUpdate = age < 2 ? "1s ago" : `${age}s ago`;
-        } catch {}
-      }
-      return {
-        id: `worker-${index + 1}`,
-        role: worker.role,
-        status: online ? ("Online" as const) : ("Offline" as const),
-        lastUpdate,
-        latencyMs: [12, 15, 11, 14, 13, 16][index % 6],
-        dataSize: 1024,
-      };
-    }),
-  );
-}
+type SystemSampleState = {
+  timestamp?: number;
+  cpu_percent?: number;
+  memory_percent?: number;
+  gpu_memory_percent?: number | null;
+};
 
 type StateFile = {
   active?: boolean;
@@ -101,8 +43,68 @@ type StateFile = {
   benign_workers?: number;
   malicious_workers?: number;
   rounds?: unknown[];
+  workers?: WorkerState[];
+  system_samples?: SystemSampleState[];
   logs?: string[];
 };
+
+async function readJson<T>(file: string): Promise<T | null> {
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function readLogs() {
+  try {
+    const text = await fs.readFile(LOG, "utf8");
+    return text.split(/\r?\n/).filter(Boolean).slice(-48);
+  } catch {
+    return [] as string[];
+  }
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function nonNegativeNumber(value: unknown): number | null {
+  const number = finiteNumber(value);
+  return number !== null && number >= 0 ? number : null;
+}
+
+function normalizeWorker(worker: WorkerState) {
+  if (!worker.id || (worker.role !== "Benign" && worker.role !== "Malicious")) {
+    return null;
+  }
+  return {
+    id: worker.id,
+    role: worker.role,
+    status: worker.status === "Online" ? "Online" : "Offline",
+    lastUpdateAt: nonNegativeNumber(worker.last_update_at),
+    latencyMs: nonNegativeNumber(worker.latency_ms),
+    dataSize: nonNegativeNumber(worker.data_size) ?? 0,
+    trainingDurationMs: nonNegativeNumber(worker.training_duration_ms),
+    loss: nonNegativeNumber(worker.loss),
+    lastRound: nonNegativeNumber(worker.last_round),
+  };
+}
+
+function normalizeSystemSample(sample: SystemSampleState) {
+  const timestamp = nonNegativeNumber(sample.timestamp);
+  const cpuPercent = nonNegativeNumber(sample.cpu_percent);
+  const memoryPercent = nonNegativeNumber(sample.memory_percent);
+  if (timestamp === null || cpuPercent === null || memoryPercent === null) {
+    return null;
+  }
+  return {
+    timestamp,
+    cpuPercent,
+    memoryPercent,
+    gpuMemoryPercent: nonNegativeNumber(sample.gpu_memory_percent),
+  };
+}
 
 function authorizedControlRequest(request: Request): boolean {
   const configured = process.env.ZTFL_DASHBOARD_CONTROL_TOKEN?.trim();
@@ -125,41 +127,77 @@ function authorizedControlRequest(request: Request): boolean {
 
 export async function GET() {
   const state = await readJson<StateFile>(STATE);
-  const live = Boolean(state);
-  const benign = state?.benign_workers ?? 3;
-  const malicious = state?.malicious_workers ?? 1;
-  const rounds =
-    Array.isArray(state?.rounds) && state.rounds.length
-      ? state.rounds
-      : previewRounds;
-  const startedAt = state?.started_at ?? null;
-  const active = live ? Boolean(state?.active) : false;
-  const runtimeLogs = live ? await readLogs() : [];
-  const stateLogs = live && Array.isArray(state?.logs) ? state.logs : [];
-  const logs = [...runtimeLogs, ...stateLogs].slice(-24);
+  if (!state) {
+    return NextResponse.json(
+      {
+        available: false,
+        active: false,
+        startedAt: null,
+        updatedAt: null,
+        elapsedSeconds: 0,
+        currentRound: null,
+        totalRounds: null,
+        attack: null,
+        aggregator: null,
+        device: null,
+        benignWorkers: 0,
+        maliciousWorkers: 0,
+        rounds: [],
+        workers: [],
+        systemSamples: [],
+        logs: [],
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
+
+  const startedAt = nonNegativeNumber(state.started_at);
+  const workers = Array.isArray(state.workers)
+    ? state.workers.map(normalizeWorker).filter((worker) => worker !== null)
+    : [];
+  const systemSamples = Array.isArray(state.system_samples)
+    ? state.system_samples
+        .map(normalizeSystemSample)
+        .filter((sample) => sample !== null)
+        .slice(-120)
+    : [];
+  const runtimeLogs = await readLogs();
+  const stateLogs = Array.isArray(state.logs)
+    ? state.logs.filter((line): line is string => typeof line === "string")
+    : [];
+  const logs = Array.from(new Set([...runtimeLogs, ...stateLogs])).slice(-48);
+
+  const derivedBenign = workers.filter((worker) => worker.role === "Benign").length;
+  const derivedMalicious = workers.filter(
+    (worker) => worker.role === "Malicious",
+  ).length;
 
   return NextResponse.json(
     {
-      mode: live ? "live" : "preview",
-      isPreview: !live,
-      active,
+      available: true,
+      active: Boolean(state.active),
       startedAt,
+      updatedAt: nonNegativeNumber(state.updated_at),
       elapsedSeconds:
-        live && startedAt !== null
-          ? Math.max(0, Math.floor(Date.now() / 1000 - startedAt))
-          : 0,
-      currentRound: state?.current_round ?? (live ? rounds.length : 0),
-      totalRounds: state?.total_rounds ?? (live ? Math.max(rounds.length, 5) : 0),
-      attack: state?.attack ?? (live ? "none" : "preview-gaussian"),
-      aggregator: state?.aggregator ?? "median",
-      device: state?.device ?? "cpu",
-      benignWorkers: benign,
-      maliciousWorkers: malicious,
-      rounds,
-      workers: live ? await workerStatus(benign, malicious) : [],
+        startedAt === null
+          ? 0
+          : Math.max(0, Math.floor(Date.now() / 1000 - startedAt)),
+      currentRound: nonNegativeNumber(state.current_round),
+      totalRounds: nonNegativeNumber(state.total_rounds),
+      attack: typeof state.attack === "string" ? state.attack : null,
+      aggregator:
+        typeof state.aggregator === "string" ? state.aggregator : null,
+      device: typeof state.device === "string" ? state.device : null,
+      benignWorkers:
+        nonNegativeNumber(state.benign_workers) ?? derivedBenign,
+      maliciousWorkers:
+        nonNegativeNumber(state.malicious_workers) ?? derivedMalicious,
+      rounds: Array.isArray(state.rounds) ? state.rounds : [],
+      workers,
+      systemSamples,
       logs,
     },
-    { headers: { "Cache-Control": "no-store" } },
+    { headers: { "Cache-Control": "no-store, max-age=0" } },
   );
 }
 
