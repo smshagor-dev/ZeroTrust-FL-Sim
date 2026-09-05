@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -156,6 +157,9 @@ func TestDurableServiceInitializesMissingState(t *testing.T) {
 	if loaded.Policy.MinUpdates != 1 || loaded.Policy.AggregationMethod != "median" {
 		t.Fatalf("initialized policy = %#v", loaded.Policy)
 	}
+	if loaded.Policy.Experiment.ID != defaultExperimentID || loaded.Policy.Experiment.ConfigSHA256 == "" || loaded.Policy.Experiment.CreatedAt.IsZero() {
+		t.Fatalf("initialized experiment metadata = %#v", loaded.Policy.Experiment)
+	}
 }
 
 func TestDurableServiceFailsClosedOnInvalidState(t *testing.T) {
@@ -185,6 +189,100 @@ func TestDurableServiceRejectsPolicyDrift(t *testing.T) {
 	}
 }
 
+func TestDurableServiceRejectsExperimentIdentityDrift(t *testing.T) {
+	store, err := NewFileStateStore(filepath.Join(t.TempDir(), "coordinator-state.json"))
+	if err != nil {
+		t.Fatalf("create state store: %v", err)
+	}
+	digest := "1111111111111111111111111111111111111111111111111111111111111111"
+	if _, err := NewDurableServiceWithExperiment(ztsecurity.NewRegistrationStore(), Config{}, store, ExperimentConfig{ID: "experiment-a", ConfigSHA256: digest}); err != nil {
+		t.Fatalf("initialize experiment: %v", err)
+	}
+	if _, err := NewDurableServiceWithExperiment(ztsecurity.NewRegistrationStore(), Config{}, store, ExperimentConfig{ID: "experiment-b", ConfigSHA256: digest}); err == nil {
+		t.Fatal("durable service accepted experiment identity drift")
+	}
+}
+
+func TestDurableServicePreservesExperimentCreationTime(t *testing.T) {
+	store, err := NewFileStateStore(filepath.Join(t.TempDir(), "coordinator-state.json"))
+	if err != nil {
+		t.Fatalf("create state store: %v", err)
+	}
+	config := ExperimentConfig{
+		ID:           "experiment-stable-time",
+		ConfigSHA256: "2222222222222222222222222222222222222222222222222222222222222222",
+	}
+	if _, err := NewDurableServiceWithExperiment(ztsecurity.NewRegistrationStore(), Config{}, store, config); err != nil {
+		t.Fatalf("initialize experiment: %v", err)
+	}
+	first, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load first state: %v", err)
+	}
+	if _, err := NewDurableServiceWithExperiment(ztsecurity.NewRegistrationStore(), Config{}, store, config); err != nil {
+		t.Fatalf("recover experiment: %v", err)
+	}
+	second, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load recovered state: %v", err)
+	}
+	if !second.Policy.Experiment.CreatedAt.Equal(first.Policy.Experiment.CreatedAt) {
+		t.Fatalf("recovered created_at = %v, want %v", second.Policy.Experiment.CreatedAt, first.Policy.Experiment.CreatedAt)
+	}
+}
+
+func TestDurableServiceUpgradesLegacyV1ExperimentIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "coordinator-state.json")
+	store, err := NewFileStateStore(path)
+	if err != nil {
+		t.Fatalf("create state store: %v", err)
+	}
+	snapshot := testStateSnapshot(t)
+	snapshot.Policy.Experiment = ExperimentMetadata{}
+	modelBytes, err := proto.Marshal(snapshot.Model)
+	if err != nil {
+		t.Fatalf("marshal legacy model: %v", err)
+	}
+	legacy := diskState{
+		SchemaVersion: legacyCoordinatorStateSchemaVersion,
+		Policy:        snapshot.Policy,
+		ModelProto:    modelBytes,
+		Pending:       snapshot.Pending,
+		Registrations: snapshot.Registrations,
+		Nonces:        snapshot.Nonces,
+		RateWindows:   snapshot.RateWindows,
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy state: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write legacy state: %v", err)
+	}
+
+	experimentConfig := ExperimentConfig{
+		ID:           "adopted-v1-experiment",
+		ConfigSHA256: "3333333333333333333333333333333333333333333333333333333333333333",
+	}
+	if _, err := NewDurableServiceWithExperiment(ztsecurity.NewRegistrationStore(), Config{MinUpdates: 2}, store, experimentConfig); err != nil {
+		t.Fatalf("upgrade legacy state: %v", err)
+	}
+	upgradedData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read upgraded state: %v", err)
+	}
+	var upgraded diskState
+	if err := json.Unmarshal(upgradedData, &upgraded); err != nil {
+		t.Fatalf("decode upgraded state: %v", err)
+	}
+	if upgraded.SchemaVersion != coordinatorStateSchemaVersion {
+		t.Fatalf("upgraded schema version = %d, want %d", upgraded.SchemaVersion, coordinatorStateSchemaVersion)
+	}
+	if upgraded.Policy.Experiment.ID != experimentConfig.ID || upgraded.Policy.Experiment.ConfigSHA256 != experimentConfig.ConfigSHA256 {
+		t.Fatalf("upgraded experiment metadata = %#v", upgraded.Policy.Experiment)
+	}
+}
+
 func testStateSnapshot(t *testing.T) StateSnapshot {
 	t.Helper()
 	payload, err := encodeNPYFloat32([]float32{1.5, -2.0})
@@ -193,14 +291,20 @@ func testStateSnapshot(t *testing.T) StateSnapshot {
 	}
 	digest := sha256.Sum256(payload)
 	now := time.Now().UTC()
+	policy := StatePolicy{
+		LeaseTTL:            5 * time.Minute,
+		MaxUpdateBytes:      defaultMaxUpdateBytes,
+		MinUpdates:          2,
+		MaxUpdatesPerMinute: defaultMaxUpdatesPerMinute,
+		AggregationMethod:   "median",
+	}
+	experiment, err := newExperimentMetadata(ExperimentConfig{}, policy, now)
+	if err != nil {
+		t.Fatalf("create experiment metadata: %v", err)
+	}
+	policy.Experiment = experiment
 	return StateSnapshot{
-		Policy: StatePolicy{
-			LeaseTTL:            5 * time.Minute,
-			MaxUpdateBytes:      defaultMaxUpdateBytes,
-			MinUpdates:          2,
-			MaxUpdatesPerMinute: defaultMaxUpdatesPerMinute,
-			AggregationMethod:   "median",
-		},
+		Policy: policy,
 		Model: &flv1.GlobalModel{
 			ModelVersion:   "round-7-test",
 			RoundId:        7,

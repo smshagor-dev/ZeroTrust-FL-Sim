@@ -23,18 +23,20 @@ import (
 )
 
 const (
-	coordinatorStateSchemaVersion = 1
-	maxCoordinatorStateBytes      = 256 << 20
+	legacyCoordinatorStateSchemaVersion = 1
+	coordinatorStateSchemaVersion       = 2
+	maxCoordinatorStateBytes            = 256 << 20
 )
 
 var ErrStateNotFound = errors.New("coordinator state not found")
 
 type StatePolicy struct {
-	LeaseTTL            time.Duration `json:"lease_ttl_ns"`
-	MaxUpdateBytes      int           `json:"max_update_bytes"`
-	MinUpdates          int           `json:"min_updates"`
-	MaxUpdatesPerMinute int           `json:"max_updates_per_minute"`
-	AggregationMethod   string        `json:"aggregation_method"`
+	LeaseTTL            time.Duration      `json:"lease_ttl_ns"`
+	MaxUpdateBytes      int                `json:"max_update_bytes"`
+	MinUpdates          int                `json:"min_updates"`
+	MaxUpdatesPerMinute int                `json:"max_updates_per_minute"`
+	AggregationMethod   string             `json:"aggregation_method"`
+	Experiment          ExperimentMetadata `json:"experiment"`
 }
 
 type PersistedUpdate struct {
@@ -147,7 +149,7 @@ func (s *FileStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	if err := ensureJSONEOF(decoder); err != nil {
 		return StateSnapshot{}, err
 	}
-	if encoded.SchemaVersion != coordinatorStateSchemaVersion {
+	if encoded.SchemaVersion != legacyCoordinatorStateSchemaVersion && encoded.SchemaVersion != coordinatorStateSchemaVersion {
 		return StateSnapshot{}, fmt.Errorf("unsupported coordinator state schema version %d", encoded.SchemaVersion)
 	}
 	if len(encoded.ModelProto) == 0 {
@@ -166,7 +168,7 @@ func (s *FileStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 		Nonces:        append([]PersistedNonce(nil), encoded.Nonces...),
 		RateWindows:   append([]PersistedRateWindow(nil), encoded.RateWindows...),
 	}
-	if err := validateStateSnapshot(snapshot); err != nil {
+	if err := validateStateSnapshotForSchema(snapshot, encoded.SchemaVersion); err != nil {
 		return StateSnapshot{}, fmt.Errorf("validate coordinator state: %w", err)
 	}
 	return cloneStateSnapshot(snapshot), nil
@@ -296,6 +298,20 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 	return nil
 }
 
+func validateStateSnapshotForSchema(snapshot StateSnapshot, schemaVersion int) error {
+	switch schemaVersion {
+	case coordinatorStateSchemaVersion:
+		return validateStateSnapshot(snapshot)
+	case legacyCoordinatorStateSchemaVersion:
+		if experimentMetadataMissing(snapshot.Policy.Experiment) {
+			snapshot.Policy.Experiment = legacyExperimentValidationPlaceholder()
+		}
+		return validateStateSnapshot(snapshot)
+	default:
+		return fmt.Errorf("unsupported coordinator state schema version %d", schemaVersion)
+	}
+}
+
 func validateStateSnapshot(snapshot StateSnapshot) error {
 	if snapshot.Policy.LeaseTTL <= 0 {
 		return errors.New("state policy registration lease must be positive")
@@ -315,6 +331,9 @@ func validateStateSnapshot(snapshot StateSnapshot) error {
 	}
 	if snapshot.Policy.AggregationMethod != normalizedAggregation {
 		return fmt.Errorf("state policy aggregation_method must use canonical value %q", normalizedAggregation)
+	}
+	if err := validateExperimentMetadata(snapshot.Policy.Experiment); err != nil {
+		return fmt.Errorf("validate experiment metadata: %w", err)
 	}
 
 	if snapshot.Model == nil {

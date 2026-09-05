@@ -1,99 +1,125 @@
 # Durable coordinator state foundation
 
-This document describes the durable-state recovery contract established for the v0.6 roadmap. The reference filesystem backend is described here, the PostgreSQL metadata backend and migration layer are documented in [`postgres-state-v0.6.md`](postgres-state-v0.6.md), S3-compatible global-model separation is documented in [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md), and PostgreSQL durable transition auditing is documented in [`durable-audit-v0.6.md`](durable-audit-v0.6.md). None of these slices provides multi-coordinator high availability.
+This document describes the durable-state contract for the v0.6 single-coordinator reference profile. The filesystem backend is described here; PostgreSQL metadata, S3-compatible model artifacts, durable audit export, credential lifecycle, and disaster recovery are documented in the adjacent v0.6 architecture documents. None of these components claims multi-coordinator high availability or consensus.
 
 ## What is persisted
 
-When `ZTFL_STATE_FILE` or `--state-file` is configured, the coordinator persists a schema-versioned snapshot containing:
+When a durable backend is configured, the coordinator persists a schema-versioned snapshot containing:
 
+- immutable experiment identity metadata: experiment ID, creation time, and configuration SHA-256;
 - the current global-model protobuf, model version, round ID, payload format, and digest;
 - pending per-worker update vectors and sample counts for a round that has not reached quorum;
-- active certificate-bound registration leases;
-- recent request nonces that are still inside the replay-protection window;
+- active certificate-bound registration leases and credential lifecycle state;
+- recent request nonces that remain inside the replay-protection window;
 - active per-worker update-rate windows; and
 - recovery-critical coordinator policy: registration lease duration, maximum update size, quorum, update-rate limit, and aggregation method.
 
-The filesystem backend is capped at 256 MiB per snapshot. A state file is treated as sensitive because it contains worker registration IDs and pending model updates. The filesystem backend does **not** provide the PostgreSQL hash-chained durable audit trail introduced by issue #46.
+Experiment identity is explicit state. It is never synthesized from the current model version or round ID.
 
-In PostgreSQL+S3 mode, recovery metadata is committed in PostgreSQL while non-empty global-model payload bytes are stored as content-addressed objects. PostgreSQL remains the state-publication authority and the loaded object is verified before the normal snapshot validator runs. Successful recovery-critical PostgreSQL transitions can also append audit records atomically with state publication.
+The filesystem backend is capped at 256 MiB per snapshot. A state file is sensitive because it contains worker registration state and may contain pending model updates. PostgreSQL can additionally provide the hash-chained durable audit trail, while PostgreSQL+S3 mode externalizes non-empty global-model payload bytes into content-addressed objects.
+
+## Experiment identity
+
+Durable coordinator startup accepts:
+
+```text
+ZTFL_EXPERIMENT_ID
+ZTFL_EXPERIMENT_CONFIG_SHA256
+```
+
+or the equivalent flags:
+
+```text
+--experiment-id
+--experiment-config-sha256
+```
+
+`ZTFL_EXPERIMENT_ID` defaults to `default` for compatibility. Once durable state is initialized, the experiment ID is immutable for that state instance.
+
+`ZTFL_EXPERIMENT_CONFIG_SHA256` is an optional lowercase SHA-256 digest of a canonical experiment configuration. Orchestration code can use it to bind the durable Go coordinator to settings that live outside the coordinator itself, including dataset identity, partition mode and parameters, random seeds, privacy configuration, malicious-client/attack configuration, and other reproducibility-critical inputs. The digest is opaque to the coordinator; raw datasets, secrets, and credential material are not copied into the durable experiment metadata.
+
+When no external configuration digest is supplied, the coordinator computes a deterministic fallback fingerprint from its own recovery-critical policy only: lease duration, maximum update size, quorum, update-rate limit, and aggregation method. This fallback deliberately excludes model version and round state. It is narrower than a full experiment manifest and should not be presented as a complete reproducibility fingerprint.
+
+On restart, the runtime experiment ID and configuration digest must match the persisted identity. The persisted experiment creation time remains authoritative. Identity or configuration drift fails closed before recovered model/update state is accepted.
+
+## State schema compatibility
+
+New durable commits use coordinator state schema v2, which adds explicit experiment metadata to the existing recovery-policy envelope.
+
+The filesystem and PostgreSQL state loaders can read schema v1 state produced before experiment identity was explicit. A normal coordinator startup may adopt the runtime-provided experiment identity exactly once for such a v1 snapshot and immediately commit a normalized v2 snapshot. This controlled upgrade does not derive identity from model version or round state.
+
+Unknown future schema versions continue to fail closed.
+
+The PostgreSQL representation does not require a new DDL column for experiment metadata. `policy` is already a transactional JSONB object and `state_schema_version` already accepts positive schema versions. Therefore the v1-to-v2 state transition is a coordinator snapshot-format upgrade, not a database table-layout migration.
+
+Recovery tooling is intentionally stricter: disaster-recovery backup opens PostgreSQL without applying migrations or rewriting state. A schema-v1 source must first be opened successfully by the coordinator and normalized to v2 before a new recovery bundle is taken.
 
 ## Commit semantics
 
-Mutating RPCs in durable mode are serialized through the durable service wrapper. The existing hardened coordinator validates and applies the operation in memory, then the complete state snapshot is committed before success is returned to the client.
+Mutating RPCs in durable mode are serialized through the durable service wrapper. The hardened coordinator validates and applies an operation in memory, then the complete state snapshot is committed before success is returned to the client.
 
 The filesystem store commits with this sequence:
 
 1. validate the complete snapshot;
-2. serialize the global model with protobuf and the envelope with JSON;
+2. serialize the global model with protobuf and the state envelope with JSON;
 3. create a temporary file in the destination directory;
 4. set the temporary file to mode `0600`;
 5. write and `fsync` the temporary file;
 6. atomically rename it over the previous snapshot; and
 7. `fsync` the parent directory.
 
-If persistence fails after a successful mutating operation, the service restores the previous in-memory snapshot and returns an internal error instead of acknowledging an uncommitted state transition.
+If persistence fails after a successful mutating operation, the service restores the previous in-memory snapshot and returns an error instead of acknowledging an uncommitted transition.
 
-Because the temporary file is created in the same directory as the destination, the rename stays on the same filesystem. Operators must place the state file on a filesystem that provides the expected atomic-rename and durability semantics.
+For PostgreSQL state, the whole recovery snapshot is committed in a `SERIALIZABLE` transaction. In PostgreSQL+S3 mode, the content-addressed model object is ensured before the PostgreSQL transaction publishes its reference. A failed PostgreSQL transaction may leave an unreferenced object, but it cannot publish a partially committed coordinator state.
 
-For PostgreSQL+S3 mode, the content-addressed object is ensured before the PostgreSQL transaction publishes its reference. A failed PostgreSQL commit may therefore leave an unreferenced object, but it cannot publish a partially committed coordinator state. See [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md).
-
-For PostgreSQL audited mutations, the state-row update and successful transition audit append share the same `SERIALIZABLE` transaction. An audit append failure therefore prevents state publication and triggers the existing durable-service rollback path. See [`durable-audit-v0.6.md`](durable-audit-v0.6.md).
+For audited PostgreSQL mutations, the state-row update and successful transition audit append share the same transaction. An audit append failure therefore prevents state publication and follows the existing rollback path.
 
 ## Startup and recovery
 
-On startup with durable mode enabled:
+With durable mode enabled:
 
-- a missing state snapshot creates and commits a bootstrap snapshot;
-- an existing supported snapshot is strictly decoded and validated;
-- unknown fields, unsupported schema versions, invalid model digests, malformed/non-finite pending updates, duplicate bindings, or impossible quorum state cause startup to fail closed;
+- a missing state snapshot initializes a bootstrap snapshot with explicit experiment metadata;
+- an existing v2 snapshot is strictly decoded and validated;
+- an existing v1 snapshot may be normalized once using the runtime experiment identity;
+- unknown fields, unsupported future schema versions, invalid model digests, malformed/non-finite pending updates, duplicate bindings, or impossible quorum state fail closed;
+- experiment ID/configuration drift fails closed;
+- recovery-critical coordinator policy drift fails closed;
 - expired registration leases are discarded;
 - stale nonce and rate-limit entries are discarded according to their existing windows; and
-- the recovered state is normalized and committed again.
-
-Recovery-critical policy must exactly match the runtime configuration. For example, changing `ZTFL_MIN_UPDATES` or the aggregation method while reusing existing durable state is rejected. This prevents a partially collected round from being reinterpreted under different trust or quorum assumptions.
+- successfully recovered state is normalized and committed again.
 
 Artifact-backed PostgreSQL state additionally requires the configured object store to return the exact referenced object length and SHA-256. Missing/corrupt objects or a missing artifact backend fail startup rather than producing an empty or silently different model.
 
-In PostgreSQL mode, bootstrap initialization and successful restart recovery/normalization append durable audit events. These events record transition metadata, not model payloads, JWTs, request nonces, private keys, or plaintext registration bearer identifiers.
+In PostgreSQL mode, bootstrap initialization and successful restart recovery/normalization append durable audit events. These events record transition metadata, not model payloads, JWTs, request nonces, private keys, or plaintext secret material.
 
 ## Filesystem safety
 
-The reference store rejects a final state path that is a symbolic link or a non-regular file, uses a bounded read, rejects unknown JSON fields, and writes the committed file with `0600` permissions. The parent path is assumed to be operator-controlled. Hardened `openat`/`O_NOFOLLOW` traversal remains future work for the filesystem backend.
+The reference store rejects a final state path that is a symbolic link or non-regular file, performs bounded reads, rejects unknown JSON fields, and writes committed files with `0600` permissions. The parent path remains operator-controlled. Hardened `openat`/`O_NOFOLLOW` traversal is outside this reference filesystem implementation.
 
-The Docker image creates `/var/lib/zerotrust-fl` owned by the non-root coordinator UID. Default Docker Compose sets:
-
-```text
-ZTFL_STATE_FILE=/var/lib/zerotrust-fl/coordinator-state.json
-```
-
-and mounts a dedicated `coordinator_state` named volume there. Ordinary coordinator container restarts therefore reuse the committed snapshot.
+The Docker image creates `/var/lib/zerotrust-fl` owned by the non-root coordinator UID. A dedicated `coordinator_state` volume can therefore retain the committed snapshot across ordinary container restarts.
 
 ## Backup and restore
 
-For the filesystem backend, a backup is a copy of the last committed state file. Prefer taking the copy while the coordinator is stopped or otherwise quiesced. The atomic rename means readers see either the previous complete snapshot or the new complete snapshot, not a partially written destination file.
+For the filesystem backend, a backup is a protected copy of the last committed state file. Prefer copying while the coordinator is stopped or otherwise quiesced. Restore only into a runtime whose experiment identity and recovery-critical policy match the saved state.
 
-Restore the snapshot only with the same supported state schema and recovery-critical coordinator policy. Keep backup copies protected as sensitive data.
-
-The PostgreSQL backend has migration and database backup guidance in [`postgres-state-v0.6.md`](postgres-state-v0.6.md). Audited PostgreSQL backups must include the audit table and migration ledger from the same recovery point as coordinator state. Artifact-backed PostgreSQL backups must also retain every S3-compatible object referenced by the database snapshot; restore ordering and object-integrity requirements are documented in [`model-artifacts-v0.6.md`](model-artifacts-v0.6.md).
-
-After an audited restore, a verified audit export can be used to detect a broken sequence, modified record, or inconsistent previous-hash link. This hash chain is tamper-evident but is not an external authenticity anchor.
+For PostgreSQL+S3, use the verified disaster-recovery workflow in [`disaster-recovery-v0.6.md`](disaster-recovery-v0.6.md). The recovery bundle binds PostgreSQL state, migration ledger, experiment identity, model artifact, and audit-chain head to the same exported MVCC snapshot and verifies them again after restore.
 
 ## CI recovery gates
 
-The Docker integration job freezes workers, copies selected filesystem durable state, restarts the coordinator, waits for health, and verifies that the model protobuf, recovery policy, and pending-round state survive the restart. Workers are then resumed and the existing benchmark smoke suite runs against the recovered cluster.
+The filesystem restart gate verifies model, policy, explicit experiment metadata, and pending-round continuity across coordinator restart before workers resume.
 
-A separate durable-state CI job exercises PostgreSQL against a real PostgreSQL service. With model-artifact support enabled it also uses a pinned S3-compatible test fixture to verify inline-row migration, content-addressed externalization, reconnect recovery, missing-backend rejection, and object-digest corruption failure. The same PostgreSQL job additionally verifies audited state-transaction atomicity, restart audit continuity, cursor validation, and tamper detection.
+The PostgreSQL/S3 job exercises transactional state persistence, artifact externalization, reconnect recovery, audit durability, and clean-room backup/destroy/restore. Recovery verification checks experiment identity/configuration metadata in addition to model version/round, migration ledger, artifact digest, registration lifecycle state, and audit-chain head.
 
-## Deliberate limitations
+## Deliberate boundaries
 
-The combined filesystem, PostgreSQL, S3-compatible artifact, and PostgreSQL durable-audit slices still do not claim full v0.6 completion. In particular, they do not yet provide:
+The v0.6 durable-state profile is intentionally limited to a supported single-coordinator reference deployment. It does not provide:
 
-- explicit credential-rotation and revocation lifecycle persistence;
-- stronger automated backup scheduling and restore drills;
-- Redis-backed distributed leases or rate limits;
-- multi-coordinator fencing or consensus;
-- automatic artifact garbage collection/lifecycle management;
-- comprehensive durable auditing of requests rejected before a successful state transition; or
-- an externally anchored/signed audit log.
+- multi-coordinator fencing, leader election, consensus, or HA;
+- CRL/OCSP-based PKI revocation or JWT signing-key rotation;
+- external KMS/HSM integration;
+- encrypted backup media or authenticated/signed recovery manifests;
+- guaranteed or measured RPO/RTO;
+- automatic artifact garbage collection; or
+- a claim that the fallback coordinator-only configuration fingerprint covers the full Python experiment configuration.
 
-The `StateStore` interface retains one recovery contract across the filesystem and PostgreSQL implementations, while `ModelArtifactStore` keeps model-object storage replaceable without rewriting hardened coordinator RPC semantics. PostgreSQL durable auditing is an additive capability attached to the PostgreSQL state store rather than a second coordinator state machine.
+The `StateStore` and `ModelArtifactStore` interfaces remain replaceable without creating a second coordinator state machine.

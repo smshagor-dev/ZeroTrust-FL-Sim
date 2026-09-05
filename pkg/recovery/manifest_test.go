@@ -47,7 +47,8 @@ func TestManifestRoundTripAndFileVerification(t *testing.T) {
 	manifest.Database = DatabaseManifest{
 		PostgreSQLVersion:    "18.6",
 		PostgreSQLVersionNum: 180006,
-		StateSchemaVersion:   1,
+		StateSchemaVersion:   2,
+		Experiment:           testExperimentManifest(),
 		ModelVersion:         "round-7-test",
 		RoundID:              7,
 		Migrations: []MigrationManifest{
@@ -73,7 +74,7 @@ func TestManifestRoundTripAndFileVerification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load recovery manifest: %v", err)
 	}
-	if loaded.Database.ModelVersion != manifest.Database.ModelVersion || loaded.Artifact == nil || loaded.Artifact.Key != manifest.Artifact.Key {
+	if loaded.Database.ModelVersion != manifest.Database.ModelVersion || loaded.Database.Experiment != manifest.Database.Experiment || loaded.Artifact == nil || loaded.Artifact.Key != manifest.Artifact.Key {
 		t.Fatalf("loaded recovery manifest = %#v", loaded)
 	}
 	if err := VerifyFile(root, loaded.Database.Dump); err != nil {
@@ -98,7 +99,8 @@ func TestManifestChecksumAndBundleFileTamperingFailClosed(t *testing.T) {
 	manifest.Database = DatabaseManifest{
 		PostgreSQLVersion:    "18.6",
 		PostgreSQLVersionNum: 180006,
-		StateSchemaVersion:   1,
+		StateSchemaVersion:   2,
+		Experiment:           testExperimentManifest(),
 		ModelVersion:         "bootstrap",
 		Migrations:           []MigrationManifest{{Version: 1, Name: "001_coordinator_state.sql"}},
 		Dump:                 dump,
@@ -131,6 +133,34 @@ func TestManifestChecksumAndBundleFileTamperingFailClosed(t *testing.T) {
 	}
 }
 
+func TestManifestRejectsInvalidExperimentMetadata(t *testing.T) {
+	manifest := Manifest{
+		SchemaVersion: BundleSchemaVersion,
+		CreatedAt:     time.Date(2026, 9, 5, 10, 0, 0, 0, time.UTC),
+		Database: DatabaseManifest{
+			PostgreSQLVersion:    "18.6",
+			PostgreSQLVersionNum: 180006,
+			StateSchemaVersion:   2,
+			Experiment: ExperimentManifest{
+				ID:           "experiment-a",
+				ConfigSHA256: "not-a-digest",
+				CreatedAt:    time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC),
+			},
+			ModelVersion: "bootstrap",
+			Migrations:   []MigrationManifest{{Version: 1, Name: "001_coordinator_state.sql"}},
+			Dump: FileManifest{
+				Path:      postgresDumpPath,
+				SHA256:    strings.Repeat("0", 64),
+				SizeBytes: 1,
+			},
+		},
+		Audit: AuditManifest{File: FileManifest{Path: auditExportPath, SHA256: strings.Repeat("0", 64)}},
+	}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "experiment") {
+		t.Fatalf("invalid experiment manifest error = %v", err)
+	}
+}
+
 func TestManifestRejectsTraversalAndSymlinkBundleFiles(t *testing.T) {
 	bad := FileManifest{Path: "../postgres.dump", SHA256: strings.Repeat("00", 32), SizeBytes: 1}
 	if err := validateFileManifest(bad, postgresDumpPath, false); err == nil {
@@ -149,5 +179,13 @@ func TestManifestRejectsTraversalAndSymlinkBundleFiles(t *testing.T) {
 	}
 	if _, err := DigestFile(root, postgresDumpPath); err == nil {
 		t.Fatal("symlinked recovery bundle file was accepted")
+	}
+}
+
+func testExperimentManifest() ExperimentManifest {
+	return ExperimentManifest{
+		ID:           "experiment-test",
+		ConfigSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		CreatedAt:    time.Date(2026, 9, 4, 19, 0, 0, 123456000, time.UTC),
 	}
 }

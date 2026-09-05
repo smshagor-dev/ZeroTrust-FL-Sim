@@ -23,33 +23,35 @@ import (
 
 func main() {
 	var (
-		listenAddress       = flag.String("listen", envString("ZTFL_LISTEN_ADDRESS", "127.0.0.1:50051"), "TCP address for the coordinator gRPC server")
-		serverCert          = flag.String("server-cert", envString("ZTFL_SERVER_CERT", "certs/dev/server.crt"), "server certificate file")
-		serverKey           = flag.String("server-key", envString("ZTFL_SERVER_KEY", "certs/dev/server.key"), "server private key file")
-		clientCA            = flag.String("client-ca", envString("ZTFL_CLIENT_CA", "certs/dev/ca.crt"), "CA certificate used to verify client certificates")
-		jwtPublicKey        = flag.String("jwt-public-key", envString("ZTFL_JWT_PUBLIC_KEY", "certs/dev/jwt_signing_public.pem"), "Ed25519 JWT verification key")
-		trustDomain         = flag.String("trust-domain", envString("ZTFL_TRUST_DOMAIN", ztsecurity.DefaultTrustDomain), "certificate URI SAN trust domain")
-		tokenIssuer         = flag.String("token-issuer", envString("ZTFL_TOKEN_ISSUER", "zerotrust-fl-sim"), "required JWT issuer")
-		tokenAudience       = flag.String("token-audience", envString("ZTFL_TOKEN_AUDIENCE", "zerotrust-fl-services"), "required JWT audience")
-		leaseTTL            = flag.Duration("registration-lease", envDuration("ZTFL_REGISTRATION_LEASE", 5*time.Minute), "node registration lease")
-		maxMessage          = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 8<<20), "maximum gRPC request and response size")
-		minUpdates          = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
-		maxUpdatesPerMinute = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
-		aggregationMethod   = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
-		stateFile           = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; mutually exclusive with PostgreSQL")
-		postgresDSN         = flag.String("postgres-dsn", envString("ZTFL_POSTGRES_DSN", ""), "PostgreSQL DSN for durable coordinator state; mutually exclusive with state-file")
-		s3Endpoint          = flag.String("s3-endpoint", envString("ZTFL_S3_ENDPOINT", ""), "S3-compatible endpoint URL for model artifacts; requires PostgreSQL")
-		s3Bucket            = flag.String("s3-bucket", envString("ZTFL_S3_BUCKET", ""), "S3-compatible bucket for model artifacts; requires PostgreSQL")
-		s3Prefix            = flag.String("s3-prefix", envString("ZTFL_S3_PREFIX", "models"), "canonical relative S3 object prefix for model artifacts")
-		s3Region            = flag.String("s3-region", envString("ZTFL_S3_REGION", "us-east-1"), "S3 region")
-		s3AllowInsecureHTTP = flag.Bool("s3-allow-insecure-http", envBool("ZTFL_S3_ALLOW_INSECURE_HTTP", false), "allow plaintext HTTP only for an explicitly trusted local/test S3 endpoint")
-		s3ForcePathStyle    = flag.Bool("s3-force-path-style", envBool("ZTFL_S3_FORCE_PATH_STYLE", false), "force path-style S3 bucket addressing for compatible local/test stores")
-		pqcModeValue        = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
-		requirePQCIdentity  = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
-		metricsAddress      = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
-		otelEndpoint        = flag.String("otel-endpoint", envString("ZTFL_OTEL_ENDPOINT", ""), "OTLP/gRPC trace collector endpoint; empty disables trace export")
-		otelInsecure        = flag.Bool("otel-insecure", envBool("ZTFL_OTEL_INSECURE", false), "use plaintext OTLP/gRPC only for an explicitly trusted local collector")
-		telemetryInstance   = flag.String("telemetry-instance", envString("ZTFL_TELEMETRY_INSTANCE", "coordinator"), "OpenTelemetry/Prometheus instance identifier")
+		listenAddress          = flag.String("listen", envString("ZTFL_LISTEN_ADDRESS", "127.0.0.1:50051"), "TCP address for the coordinator gRPC server")
+		serverCert             = flag.String("server-cert", envString("ZTFL_SERVER_CERT", "certs/dev/server.crt"), "server certificate file")
+		serverKey              = flag.String("server-key", envString("ZTFL_SERVER_KEY", "certs/dev/server.key"), "server private key file")
+		clientCA               = flag.String("client-ca", envString("ZTFL_CLIENT_CA", "certs/dev/ca.crt"), "CA certificate used to verify client certificates")
+		jwtPublicKey           = flag.String("jwt-public-key", envString("ZTFL_JWT_PUBLIC_KEY", "certs/dev/jwt_signing_public.pem"), "Ed25519 JWT verification key")
+		trustDomain            = flag.String("trust-domain", envString("ZTFL_TRUST_DOMAIN", ztsecurity.DefaultTrustDomain), "certificate URI SAN trust domain")
+		tokenIssuer            = flag.String("token-issuer", envString("ZTFL_TOKEN_ISSUER", "zerotrust-fl-sim"), "required JWT issuer")
+		tokenAudience          = flag.String("token-audience", envString("ZTFL_TOKEN_AUDIENCE", "zerotrust-fl-services"), "required JWT audience")
+		leaseTTL               = flag.Duration("registration-lease", envDuration("ZTFL_REGISTRATION_LEASE", 5*time.Minute), "node registration lease")
+		maxMessage             = flag.Int("max-message-bytes", envInt("ZTFL_MAX_MESSAGE_BYTES", 8<<20), "maximum gRPC request and response size")
+		minUpdates             = flag.Int("min-updates", envInt("ZTFL_MIN_UPDATES", 1), "minimum unique worker updates required before advancing a round")
+		maxUpdatesPerMinute    = flag.Int("max-updates-per-minute", envInt("ZTFL_MAX_UPDATES_PER_MINUTE", 60), "per-worker SubmitLocalUpdate rate limit")
+		aggregationMethod      = flag.String("aggregation-method", envString("ZTFL_AGGREGATION_METHOD", "median"), "network aggregation method: median or weighted_mean")
+		experimentID           = flag.String("experiment-id", envString("ZTFL_EXPERIMENT_ID", "default"), "immutable durable experiment identifier")
+		experimentConfigSHA256 = flag.String("experiment-config-sha256", envString("ZTFL_EXPERIMENT_CONFIG_SHA256", ""), "optional lowercase SHA-256 of the canonical full experiment configuration")
+		stateFile              = flag.String("state-file", envString("ZTFL_STATE_FILE", ""), "atomic coordinator state snapshot file; mutually exclusive with PostgreSQL")
+		postgresDSN            = flag.String("postgres-dsn", envString("ZTFL_POSTGRES_DSN", ""), "PostgreSQL DSN for durable coordinator state; mutually exclusive with state-file")
+		s3Endpoint             = flag.String("s3-endpoint", envString("ZTFL_S3_ENDPOINT", ""), "S3-compatible endpoint URL for model artifacts; requires PostgreSQL")
+		s3Bucket               = flag.String("s3-bucket", envString("ZTFL_S3_BUCKET", ""), "S3-compatible bucket for model artifacts; requires PostgreSQL")
+		s3Prefix               = flag.String("s3-prefix", envString("ZTFL_S3_PREFIX", "models"), "canonical relative S3 object prefix for model artifacts")
+		s3Region               = flag.String("s3-region", envString("ZTFL_S3_REGION", "us-east-1"), "S3 region")
+		s3AllowInsecureHTTP    = flag.Bool("s3-allow-insecure-http", envBool("ZTFL_S3_ALLOW_INSECURE_HTTP", false), "allow plaintext HTTP only for an explicitly trusted local/test S3 endpoint")
+		s3ForcePathStyle       = flag.Bool("s3-force-path-style", envBool("ZTFL_S3_FORCE_PATH_STYLE", false), "force path-style S3 bucket addressing for compatible local/test stores")
+		pqcModeValue           = flag.String("pqc-mode", envString("ZTFL_PQC_MODE", "prefer"), "post-quantum TLS key-exchange policy: off, prefer, or require")
+		requirePQCIdentity     = flag.Bool("pqc-require-identity", envBool("ZTFL_PQC_REQUIRE_IDENTITY", false), "require ML-DSA peer and local X.509 identities")
+		metricsAddress         = flag.String("metrics-address", envString("ZTFL_METRICS_ADDRESS", "127.0.0.1:9464"), "Prometheus metrics listen address; empty disables the endpoint")
+		otelEndpoint           = flag.String("otel-endpoint", envString("ZTFL_OTEL_ENDPOINT", ""), "OTLP/gRPC trace collector endpoint; empty disables trace export")
+		otelInsecure           = flag.Bool("otel-insecure", envBool("ZTFL_OTEL_INSECURE", false), "use plaintext OTLP/gRPC only for an explicitly trusted local collector")
+		telemetryInstance      = flag.String("telemetry-instance", envString("ZTFL_TELEMETRY_INSTANCE", "coordinator"), "OpenTelemetry/Prometheus instance identifier")
 	)
 	flag.Parse()
 
@@ -134,6 +136,10 @@ func main() {
 		MaxUpdatesPerMinute: *maxUpdatesPerMinute,
 		AggregationMethod:   *aggregationMethod,
 	}
+	experimentConfig := coordinator.ExperimentConfig{
+		ID:           *experimentID,
+		ConfigSHA256: *experimentConfigSHA256,
+	}
 	var service flv1.CoordinatorServiceServer
 	stateBackend := "volatile"
 	switch {
@@ -170,14 +176,14 @@ func main() {
 			os.Exit(1)
 		}
 		defer stateStore.Close()
-		service, err = coordinator.NewDurableService(registry, serviceConfig, stateStore)
+		service, err = coordinator.NewDurableServiceWithExperiment(registry, serviceConfig, stateStore, experimentConfig)
 	case *stateFile != "":
 		stateStore, storeErr := coordinator.NewFileStateStore(*stateFile)
 		if storeErr != nil {
 			logger.Error("configure filesystem coordinator state store", "error", storeErr)
 			os.Exit(1)
 		}
-		service, err = coordinator.NewDurableService(registry, serviceConfig, stateStore)
+		service, err = coordinator.NewDurableServiceWithExperiment(registry, serviceConfig, stateStore, experimentConfig)
 		stateBackend = "filesystem"
 	default:
 		service, err = coordinator.NewService(registry, serviceConfig)
@@ -230,6 +236,7 @@ func main() {
 			"aggregation_method", *aggregationMethod,
 			"durable_state", durableStateEnabled,
 			"state_backend", stateBackend,
+			"experiment_id", *experimentID,
 		)
 		serveErrors <- grpcServer.Serve(listener)
 	}()

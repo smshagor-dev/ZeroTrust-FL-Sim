@@ -184,9 +184,14 @@ func Backup(ctx context.Context, cfg BackupConfig) (BackupResult, error) {
 		PostgreSQLVersion:    metadata.PostgreSQLVersion,
 		PostgreSQLVersionNum: metadata.PostgreSQLVersionNum,
 		StateSchemaVersion:   metadata.StateSchemaVersion,
-		ModelVersion:         metadata.ModelVersion,
-		RoundID:              metadata.RoundID,
-		Dump:                 dumpManifest,
+		Experiment: ExperimentManifest{
+			ID:           metadata.Experiment.ID,
+			ConfigSHA256: metadata.Experiment.ConfigSHA256,
+			CreatedAt:    metadata.Experiment.CreatedAt,
+		},
+		ModelVersion: metadata.ModelVersion,
+		RoundID:      metadata.RoundID,
+		Dump:         dumpManifest,
 	}
 	for _, migration := range metadata.Migrations {
 		manifest.Database.Migrations = append(manifest.Database.Migrations, MigrationManifest{Version: migration.Version, Name: migration.Name})
@@ -315,6 +320,9 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("validate restored coordinator state: %w", err)
 	}
+	if !experimentMatchesManifest(state.Policy.Experiment, manifest.Database.Experiment) {
+		return RestoreResult{}, errors.New("restored coordinator experiment metadata disagrees with recovery manifest")
+	}
 	if state.Model.GetModelVersion() != manifest.Database.ModelVersion || state.Model.GetRoundId() != manifest.Database.RoundID {
 		return RestoreResult{}, errors.New("restored coordinator model version/round disagrees with recovery manifest")
 	}
@@ -388,9 +396,16 @@ func artifactRefMatchesManifest(ref coordinator.ModelArtifactRef, manifest Artif
 	return ref.Bucket == manifest.Bucket && ref.Key == manifest.Key && ref.SizeBytes == manifest.SizeBytes && bytes.Equal(ref.SHA256, digest)
 }
 
+func experimentMatchesManifest(metadata coordinator.ExperimentMetadata, manifest ExperimentManifest) bool {
+	return metadata.ID == manifest.ID && metadata.ConfigSHA256 == manifest.ConfigSHA256 && metadata.CreatedAt.Equal(manifest.CreatedAt)
+}
+
 func compareRecoveryMetadata(manifest Manifest, metadata coordinator.RecoveryMetadata) error {
 	if metadata.StateSchemaVersion != manifest.Database.StateSchemaVersion || metadata.ModelVersion != manifest.Database.ModelVersion || metadata.RoundID != manifest.Database.RoundID {
 		return errors.New("restored coordinator recovery metadata disagrees with manifest")
+	}
+	if !experimentMatchesManifest(metadata.Experiment, manifest.Database.Experiment) {
+		return errors.New("restored coordinator experiment recovery metadata disagrees with manifest")
 	}
 	if len(metadata.Migrations) != len(manifest.Database.Migrations) {
 		return errors.New("restored PostgreSQL migration ledger length disagrees with manifest")
