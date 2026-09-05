@@ -22,6 +22,7 @@ func TestRecoveryBackupDoesNotAutoMigrateSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initialize recovery source schema: %v", err)
 	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	state := coordinator.StateSnapshot{
 		Policy: coordinator.StatePolicy{
 			LeaseTTL:            5 * time.Minute,
@@ -29,12 +30,17 @@ func TestRecoveryBackupDoesNotAutoMigrateSource(t *testing.T) {
 			MinUpdates:          1,
 			MaxUpdatesPerMinute: 60,
 			AggregationMethod:   "median",
+			Experiment: coordinator.ExperimentMetadata{
+				ID:           "recovery-source-schema",
+				ConfigSHA256: "5555555555555555555555555555555555555555555555555555555555555555",
+				CreatedAt:    now,
+			},
 		},
 		Model: &flv1.GlobalModel{
 			ModelVersion:  "bootstrap-recovery-source-schema",
 			RoundId:       0,
 			WeightsFormat: "application/x-npy-f32",
-			CreatedAtUnix: time.Now().UTC().Unix(),
+			CreatedAtUnix: now.Unix(),
 		},
 	}
 	if err := store.Commit(ctx, state); err != nil {
