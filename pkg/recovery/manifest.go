@@ -287,22 +287,40 @@ func safeBundleFile(root, relativePath string) (string, error) {
 	if err := validateRelativePath(relativePath); err != nil {
 		return "", err
 	}
-	rootInfo, err := os.Lstat(root)
+	absoluteRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("resolve recovery bundle root: %w", err)
+	}
+	rootInfo, err := os.Lstat(absoluteRoot)
 	if err != nil {
 		return "", fmt.Errorf("inspect recovery bundle root: %w", err)
 	}
 	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		return "", errors.New("recovery bundle root must be a real directory")
 	}
-	candidate := filepath.Join(root, filepath.FromSlash(relativePath))
-	info, err := os.Lstat(candidate)
-	if err != nil {
-		return "", err
+
+	current := absoluteRoot
+	parts := strings.Split(relativePath, "/")
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("recovery bundle path %q contains a symbolic link", relativePath)
+		}
+		if index < len(parts)-1 {
+			if !info.IsDir() {
+				return "", fmt.Errorf("recovery bundle parent for %q is not a directory", relativePath)
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("recovery bundle path %q must be a regular non-symlink file", relativePath)
+		}
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("recovery bundle path %q must be a regular non-symlink file", relativePath)
-	}
-	return candidate, nil
+	return current, nil
 }
 
 func readBoundedFile(path string, limit int64) ([]byte, error) {
