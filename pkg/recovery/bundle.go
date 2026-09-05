@@ -42,6 +42,10 @@ type RestoreResult struct {
 	PgRestoreVersion string
 }
 
+type recoveryNamespaceInspector interface {
+	RecoveryNamespaceEmpty(context.Context) (bool, error)
+}
+
 func Backup(ctx context.Context, cfg BackupConfig) (BackupResult, error) {
 	if strings.TrimSpace(cfg.PostgresDSN) == "" {
 		return BackupResult{}, errors.New("PostgreSQL DSN is required for recovery backup")
@@ -75,7 +79,10 @@ func Backup(ctx context.Context, cfg BackupConfig) (BackupResult, error) {
 		}
 	}()
 
-	store, err := coordinator.NewPostgresStateStore(ctx, cfg.PostgresDSN)
+	// Recovery backup must never mutate the source database merely by opening
+	// it. Schema compatibility is checked explicitly against the embedded
+	// migration ledger below.
+	store, err := coordinator.OpenPostgresStateStoreForRecovery(ctx, cfg.PostgresDSN, cfg.Artifacts)
 	if err != nil {
 		return BackupResult{}, fmt.Errorf("open PostgreSQL state for recovery backup: %w", err)
 	}
@@ -92,6 +99,9 @@ func Backup(ctx context.Context, cfg BackupConfig) (BackupResult, error) {
 		}
 	}()
 	metadata := recoverySnapshot.Metadata()
+	if err := coordinator.ValidateRecoveryMigrationLedger(metadata.Migrations); err != nil {
+		return BackupResult{}, fmt.Errorf("validate recovery source migration ledger: %w", err)
+	}
 
 	auditRecords, err := recoverySnapshot.ReadAuditEvents(ctx)
 	if err != nil {
@@ -218,6 +228,9 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 	if err != nil {
 		return RestoreResult{}, err
 	}
+	if err := validateManifestMigrationLedger(manifest); err != nil {
+		return RestoreResult{}, err
+	}
 	if err := VerifyFile(root, manifest.Database.Dump); err != nil {
 		return RestoreResult{}, err
 	}
@@ -248,9 +261,18 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 		return RestoreResult{}, errors.New("recovery audit export head hash disagrees with manifest")
 	}
 
+	// Validate every target before writing either authority. This prevents a
+	// dirty PostgreSQL target from causing a partial S3 restore, and prevents a
+	// dirty S3 namespace from being mixed with the recovered database.
+	if err := ensureCleanPostgresTarget(ctx, cfg.PostgresDSN, manifest.Database.PostgreSQLVersionNum); err != nil {
+		return RestoreResult{}, err
+	}
 	if manifest.Artifact != nil {
 		if cfg.Artifacts == nil {
 			return RestoreResult{}, errors.New("recovery restore requires the configured model artifact store")
+		}
+		if err := ensureCleanArtifactTarget(ctx, cfg.Artifacts); err != nil {
+			return RestoreResult{}, err
 		}
 		if err := VerifyFile(root, manifest.Artifact.File); err != nil {
 			return RestoreResult{}, err
@@ -272,9 +294,6 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 		}
 	}
 
-	if err := ensureCleanPostgresTarget(ctx, cfg.PostgresDSN); err != nil {
-		return RestoreResult{}, err
-	}
 	dumpPath, err := safeBundleFile(root, manifest.Database.Dump.Path)
 	if err != nil {
 		return RestoreResult{}, err
@@ -284,12 +303,10 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 		return RestoreResult{}, err
 	}
 
-	var store *coordinator.PostgresStateStore
-	if manifest.Artifact != nil {
-		store, err = coordinator.NewPostgresStateStoreWithArtifacts(ctx, cfg.PostgresDSN, cfg.Artifacts)
-	} else {
-		store, err = coordinator.NewPostgresStateStore(ctx, cfg.PostgresDSN)
-	}
+	// Verification is intentionally no-migrate. A restore must reproduce the
+	// exact schema ledger in the manifest rather than succeeding because the
+	// current binary silently upgraded it after pg_restore.
+	store, err := coordinator.OpenPostgresStateStoreForRecovery(ctx, cfg.PostgresDSN, cfg.Artifacts)
 	if err != nil {
 		return RestoreResult{}, fmt.Errorf("open restored coordinator state: %w", err)
 	}
@@ -307,6 +324,10 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 		return RestoreResult{}, fmt.Errorf("verify restored recovery metadata: %w", err)
 	}
 	metadata := verification.Metadata()
+	if err := coordinator.ValidateRecoveryMigrationLedger(metadata.Migrations); err != nil {
+		_ = verification.Close(context.Background())
+		return RestoreResult{}, fmt.Errorf("validate restored migration ledger: %w", err)
+	}
 	restoredAudit, auditErr := verification.ReadAuditEvents(ctx)
 	closeVerificationErr := verification.Close(context.Background())
 	if auditErr != nil {
@@ -331,6 +352,32 @@ func Restore(ctx context.Context, cfg RestoreConfig) (RestoreResult, error) {
 		AuditHead:        metadata.AuditHead,
 		PgRestoreVersion: pgRestoreVersion,
 	}, nil
+}
+
+func validateManifestMigrationLedger(manifest Manifest) error {
+	migrations := make([]coordinator.RecoveryMigration, len(manifest.Database.Migrations))
+	for index, migration := range manifest.Database.Migrations {
+		migrations[index] = coordinator.RecoveryMigration{Version: migration.Version, Name: migration.Name}
+	}
+	if err := coordinator.ValidateRecoveryMigrationLedger(migrations); err != nil {
+		return fmt.Errorf("validate recovery manifest migration ledger: %w", err)
+	}
+	return nil
+}
+
+func ensureCleanArtifactTarget(ctx context.Context, artifacts coordinator.ModelArtifactStore) error {
+	inspector, ok := artifacts.(recoveryNamespaceInspector)
+	if !ok {
+		return errors.New("recovery artifact store cannot prove that its target namespace is empty")
+	}
+	empty, err := inspector.RecoveryNamespaceEmpty(ctx)
+	if err != nil {
+		return err
+	}
+	if !empty {
+		return errors.New("recovery S3 target namespace is not clean")
+	}
+	return nil
 }
 
 func artifactRefMatchesManifest(ref coordinator.ModelArtifactRef, manifest ArtifactManifest) bool {
