@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	"google.golang.org/grpc/codes"
@@ -35,8 +36,9 @@ var schemaDomainV1 = []byte("ztfl-model-schema-v1\x00")
 type EnvelopeService struct {
 	flv1.UnimplementedCoordinatorServiceServer
 
-	inner   flv1.CoordinatorServiceServer
-	modelID string
+	inner    flv1.CoordinatorServiceServer
+	modelID  string
+	updateMu sync.Mutex
 }
 
 // NewEnvelopeService wraps a coordinator service with model-envelope validation.
@@ -84,6 +86,12 @@ func (s *EnvelopeService) SubmitLocalUpdate(ctx context.Context, req *flv1.Submi
 	if err := s.validateUpdateEnvelope(req); err != nil {
 		return nil, err
 	}
+
+	// Serialize schema observation with the wrapped update commit. Without this
+	// boundary lock, concurrent bootstrap workers could both observe an empty
+	// pending set and race different schemas into the same round.
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 
 	// Compare the submitted schema with the current authoritative global model.
 	// A payload-free bootstrap model has no global schema yet, so any already
