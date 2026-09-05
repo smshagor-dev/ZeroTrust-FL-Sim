@@ -86,8 +86,10 @@ func (s *EnvelopeService) SubmitLocalUpdate(ctx context.Context, req *flv1.Submi
 	}
 
 	// Compare the submitted schema with the current authoritative global model.
-	// A payload-free bootstrap model has no bound schema yet; the first valid
-	// update establishes the vector schema and subsequent rounds must match it.
+	// A payload-free bootstrap model has no global schema yet, so any already
+	// accepted pending update becomes the round-local schema authority. Reading
+	// the pending vector also preserves this fail-fast behavior after durable
+	// recovery instead of relying on process-local envelope state.
 	current, err := s.inner.GetGlobalModel(ctx, &flv1.GetGlobalModelRequest{
 		NodeId:            req.GetNodeId(),
 		RegistrationId:    req.GetRegistrationId(),
@@ -101,8 +103,18 @@ func (s *EnvelopeService) SubmitLocalUpdate(ctx context.Context, req *flv1.Submi
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "invalid current model envelope: %v", err)
 	}
-	if len(current.GetSchemaSha256()) > 0 && !bytes.Equal(current.GetSchemaSha256(), req.GetSchemaSha256()) {
-		return nil, status.Error(codes.FailedPrecondition, "update schema does not match current global model schema")
+	if len(current.GetSchemaSha256()) > 0 {
+		if !bytes.Equal(current.GetSchemaSha256(), req.GetSchemaSha256()) {
+			return nil, status.Error(codes.FailedPrecondition, "update schema does not match current global model schema")
+		}
+	} else {
+		pendingSchema, found, pendingErr := s.pendingSchemaDigest()
+		if pendingErr != nil {
+			return nil, status.Errorf(codes.Internal, "invalid recovered pending update schema: %v", pendingErr)
+		}
+		if found && !bytes.Equal(pendingSchema, req.GetSchemaSha256()) {
+			return nil, status.Error(codes.FailedPrecondition, "update schema does not match the bootstrap round schema")
+		}
 	}
 
 	return s.inner.SubmitLocalUpdate(ctx, req)
@@ -172,6 +184,48 @@ func (s *EnvelopeService) validateUpdateEnvelope(req *flv1.SubmitLocalUpdateRequ
 	return nil
 }
 
+func (s *EnvelopeService) pendingSchemaDigest() ([]byte, bool, error) {
+	service := unwrapCoreService(s.inner)
+	if service == nil {
+		return nil, false, nil
+	}
+
+	service.roundMu.Lock()
+	defer service.roundMu.Unlock()
+
+	var elementCount int
+	for _, update := range service.pending {
+		if len(update.Values) == 0 {
+			return nil, false, errors.New("pending update vector must not be empty")
+		}
+		if elementCount == 0 {
+			elementCount = len(update.Values)
+			continue
+		}
+		if len(update.Values) != elementCount {
+			return nil, false, errors.New("pending update vector lengths do not match")
+		}
+	}
+	if elementCount == 0 {
+		return nil, false, nil
+	}
+
+	manifest := manifestForElementCount(uint64(elementCount))
+	digest := modelSchemaDigest(manifest)
+	return append([]byte(nil), digest[:]...), true, nil
+}
+
+func unwrapCoreService(inner flv1.CoordinatorServiceServer) *Service {
+	switch typed := inner.(type) {
+	case *Service:
+		return typed
+	case *DurableService:
+		return typed.service
+	default:
+		return nil
+	}
+}
+
 func manifestForPayload(payload []byte) ([]*flv1.TensorManifestEntry, error) {
 	values, err := decodeNPYFloat32(payload)
 	if err != nil {
@@ -180,13 +234,16 @@ func manifestForPayload(payload []byte) ([]*flv1.TensorManifestEntry, error) {
 	if len(values) == 0 {
 		return nil, errors.New("tensor payload must not be empty")
 	}
-	elements := uint64(len(values))
+	return manifestForElementCount(uint64(len(values))), nil
+}
+
+func manifestForElementCount(elements uint64) []*flv1.TensorManifestEntry {
 	return []*flv1.TensorManifestEntry{{
 		Name:         flatTensorName,
 		Dtype:        float32DType,
 		Dimensions:   []uint64{elements},
 		ElementCount: elements,
-	}}, nil
+	}}
 }
 
 func manifestEqual(expected, actual []*flv1.TensorManifestEntry) bool {
