@@ -9,8 +9,9 @@ import os
 import platform
 import socket
 import ssl
+import struct
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
@@ -24,6 +25,13 @@ from typing_extensions import Self
 
 TokenSource = Callable[[], str]
 
+MODEL_PROTOCOL_VERSION = 1
+DEFAULT_MODEL_ID = "global-model"
+NETWORK_WEIGHTS_FORMAT = "application/x-npy-f32"
+_FLAT_TENSOR_NAME = "flat_weights"
+_FLOAT32_DTYPE = "float32"
+_SCHEMA_DOMAIN_V1 = b"ztfl-model-schema-v1\x00"
+
 
 @dataclass(frozen=True, slots=True)
 class GrpcWorkerConfig:
@@ -33,6 +41,7 @@ class GrpcWorkerConfig:
     ca_certificate: str
     client_certificate: str
     client_private_key: str
+    model_id: str = DEFAULT_MODEL_ID
     jwt_token: str | None = None
     jwt_token_file: str | None = None
     server_name_override: str | None = None
@@ -49,6 +58,12 @@ class GrpcWorkerConfig:
             raise ValueError("node_id is required")
         if not self.certificate_common_name.strip():
             raise ValueError("certificate_common_name is required")
+        if (
+            not self.model_id.strip()
+            or len(self.model_id) > 256
+            or any(char in self.model_id for char in "\x00\r\n")
+        ):
+            raise ValueError("model_id must be a non-empty stable identifier")
         if bool(self.jwt_token) == bool(self.jwt_token_file):
             raise ValueError("configure exactly one of jwt_token or jwt_token_file")
         if not self.expected_trust_domain.strip():
@@ -57,8 +72,12 @@ class GrpcWorkerConfig:
             raise ValueError("expected_server_role is required")
         if self.server_certificate_sha256 is not None:
             digest = self.server_certificate_sha256.lower().replace(":", "").strip()
-            if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
-                raise ValueError("server_certificate_sha256 must be a SHA-256 hex digest")
+            if len(digest) != 64 or any(
+                char not in "0123456789abcdef" for char in digest
+            ):
+                raise ValueError(
+                    "server_certificate_sha256 must be a SHA-256 hex digest"
+                )
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if self.max_message_bytes <= 0:
@@ -72,6 +91,14 @@ class UpdateMetrics:
     gradient_norms: tuple[float, ...]
     sample_count: int
     training_duration_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class TensorManifestSpec:
+    name: str
+    dtype: str
+    dimensions: tuple[int, ...]
+    element_count: int
 
 
 class GrpcWorkerClient:
@@ -166,11 +193,13 @@ class GrpcWorkerClient:
             known_model_version=known_model_version,
             security=_security_metadata(self._pb2),
         )
-        return self.stub.GetGlobalModel(
+        response = self.stub.GetGlobalModel(
             request,
             timeout=self.config.timeout_seconds,
             metadata=self._metadata(),
         )
+        validate_global_model_envelope(response, self.config.model_id)
+        return response
 
     def submit_update(
         self,
@@ -183,13 +212,15 @@ class GrpcWorkerClient:
         registration_id = self._require_registration()
         payload = serialize_update(update)
         digest = hashlib.sha256(payload).digest()
+        manifest = manifest_for_payload(payload)
+        schema_digest = model_schema_sha256(manifest)
         request = self._pb2.SubmitLocalUpdateRequest(
             node_id=self.config.node_id,
             registration_id=registration_id,
             round_id=int(round_id),
             base_model_version=base_model_version,
             weights_payload=payload,
-            weights_format="application/x-npy-f32",
+            weights_format=NETWORK_WEIGHTS_FORMAT,
             update_sha256=digest,
             metrics=self._pb2.LocalUpdateMetrics(
                 dynamic_epochs=int(metrics.dynamic_epochs),
@@ -199,6 +230,10 @@ class GrpcWorkerClient:
                 training_duration_ms=int(metrics.training_duration_ms),
             ),
             security=_security_metadata(self._pb2),
+            protocol_version=MODEL_PROTOCOL_VERSION,
+            model_id=self.config.model_id,
+            schema_sha256=schema_digest,
+            tensor_manifest=[_manifest_message(self._pb2, entry) for entry in manifest],
         )
         return self.stub.SubmitLocalUpdate(
             request,
@@ -287,7 +322,11 @@ class GrpcWorkerClient:
 
         if self.config.server_certificate_sha256 is not None:
             actual = hashlib.sha256(certificate_der).hexdigest()
-            expected = self.config.server_certificate_sha256.lower().replace(":", "").strip()
+            expected = (
+                self.config.server_certificate_sha256.lower()
+                .replace(":", "")
+                .strip()
+            )
             if not hmac.compare_digest(actual, expected):
                 raise ssl.SSLCertVerificationError(
                     "coordinator certificate SHA-256 pin mismatch"
@@ -333,11 +372,103 @@ def deserialize_update(payload: bytes) -> np.ndarray:
     return np.ascontiguousarray(array)
 
 
+def manifest_for_payload(payload: bytes) -> tuple[TensorManifestSpec, ...]:
+    """Return the canonical v1 tensor manifest for a network payload."""
+
+    array = deserialize_update(payload)
+    elements = int(array.size)
+    return (
+        TensorManifestSpec(
+            name=_FLAT_TENSOR_NAME,
+            dtype=_FLOAT32_DTYPE,
+            dimensions=(elements,),
+            element_count=elements,
+        ),
+    )
+
+
+def model_schema_sha256(manifest: Sequence[TensorManifestSpec]) -> bytes:
+    """Hash the language-neutral canonical v1 tensor-schema representation."""
+
+    encoded = bytearray(_SCHEMA_DOMAIN_V1)
+    encoded.extend(struct.pack(">I", len(manifest)))
+    for entry in manifest:
+        _append_schema_string(encoded, entry.name)
+        _append_schema_string(encoded, entry.dtype)
+        encoded.extend(struct.pack(">I", len(entry.dimensions)))
+        for dimension in entry.dimensions:
+            if dimension <= 0:
+                raise ValueError("tensor dimensions must be positive")
+            encoded.extend(struct.pack(">Q", int(dimension)))
+        if entry.element_count <= 0:
+            raise ValueError("tensor element_count must be positive")
+        encoded.extend(struct.pack(">Q", int(entry.element_count)))
+    return hashlib.sha256(encoded).digest()
+
+
+def validate_global_model_envelope(model: Any, expected_model_id: str) -> None:
+    """Fail closed when a coordinator returns a malformed model envelope."""
+
+    if int(model.protocol_version) != MODEL_PROTOCOL_VERSION:
+        raise ValueError(
+            f"unsupported model protocol version {int(model.protocol_version)}"
+        )
+    if model.model_id != expected_model_id:
+        raise ValueError(
+            f"global model_id {model.model_id!r} does not match {expected_model_id!r}"
+        )
+
+    payload = bytes(model.weights_payload)
+    if not payload:
+        if model.schema_sha256 or model.tensor_manifest:
+            raise ValueError("bootstrap model without payload must not declare a schema")
+        return
+    if model.weights_format != NETWORK_WEIGHTS_FORMAT:
+        raise ValueError(f"unsupported global model format {model.weights_format!r}")
+    if not hmac.compare_digest(hashlib.sha256(payload).digest(), bytes(model.sha256)):
+        raise ValueError("global model payload SHA-256 digest mismatch")
+
+    expected_manifest = manifest_for_payload(payload)
+    actual_manifest = tuple(
+        TensorManifestSpec(
+            name=entry.name,
+            dtype=entry.dtype,
+            dimensions=tuple(int(value) for value in entry.dimensions),
+            element_count=int(entry.element_count),
+        )
+        for entry in model.tensor_manifest
+    )
+    if actual_manifest != expected_manifest:
+        raise ValueError("global model tensor_manifest does not match payload")
+    expected_schema = model_schema_sha256(expected_manifest)
+    if not hmac.compare_digest(expected_schema, bytes(model.schema_sha256)):
+        raise ValueError("global model schema_sha256 does not match tensor_manifest")
+
+
+def _manifest_message(pb2: Any, entry: TensorManifestSpec) -> Any:
+    return pb2.TensorManifestEntry(
+        name=entry.name,
+        dtype=entry.dtype,
+        dimensions=list(entry.dimensions),
+        element_count=entry.element_count,
+    )
+
+
+def _append_schema_string(buffer: bytearray, value: str) -> None:
+    encoded = value.encode("utf-8")
+    buffer.extend(struct.pack(">I", len(encoded)))
+    buffer.extend(encoded)
+
+
 def _split_host_port(address: str) -> tuple[str, int]:
     value = address.strip()
     if value.startswith("["):
         closing = value.find("]")
-        if closing <= 0 or closing + 2 > len(value) or value[closing + 1] != ":":
+        if (
+            closing <= 0
+            or closing + 2 > len(value)
+            or value[closing + 1] != ":"
+        ):
             raise ValueError("address must use host:port syntax")
         host = value[1:closing]
         port_text = value[closing + 2 :]

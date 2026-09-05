@@ -40,6 +40,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--node-id", default=os.getenv("ZTFL_NODE_ID", "edge-worker-01")
     )
+    parser.add_argument(
+        "--model-id", default=os.getenv("ZTFL_MODEL_ID", "global-model")
+    )
     parser.add_argument("--cert-dir", default=os.getenv("ZTFL_CERT_DIR", "/certs"))
     parser.add_argument(
         "--attack",
@@ -170,6 +173,7 @@ def main() -> None:
         ca_certificate=str(cert_dir / "ca.crt"),
         client_certificate=str(cert_dir / f"{args.node_id}.crt"),
         client_private_key=str(cert_dir / f"{args.node_id}.key"),
+        model_id=args.model_id,
         jwt_token_file=str(cert_dir / f"{args.node_id}.jwt"),
         server_name_override=args.server_name,
         timeout_seconds=10.0,

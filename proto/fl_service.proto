@@ -32,6 +32,17 @@ message SecurityMetadata {
   bytes nonce = 6;
 }
 
+// TensorManifestEntry describes one tensor in the model schema. The current
+// v1 network payload is a single flattened float32 vector, but the manifest is
+// explicit so future protocol revisions can evolve without inferring shape or
+// dtype from an opaque byte payload.
+message TensorManifestEntry {
+  string name = 1;
+  string dtype = 2;
+  repeated uint64 dimensions = 3;
+  uint64 element_count = 4;
+}
+
 message RegisterNodeRequest {
   string node_id = 1;
   string certificate_common_name = 2;
@@ -77,6 +88,13 @@ message GlobalModel {
   string weights_format = 4;
   bytes sha256 = 5;
   int64 created_at_unix = 6;
+
+  // Stable protocol envelope fields. Existing field numbers above remain
+  // unchanged for wire compatibility with pre-v0.7 clients.
+  uint32 protocol_version = 7;
+  string model_id = 8;
+  bytes schema_sha256 = 9;
+  repeated TensorManifestEntry tensor_manifest = 10;
 }
 
 message LocalUpdateMetrics {
@@ -97,6 +115,13 @@ message SubmitLocalUpdateRequest {
   bytes update_sha256 = 7;
   LocalUpdateMetrics metrics = 8;
   SecurityMetadata security = 9;
+
+  // Stable protocol envelope fields. New update submissions must carry these
+  // fields so model identity and tensor schema are never inferred silently.
+  uint32 protocol_version = 10;
+  string model_id = 11;
+  bytes schema_sha256 = 12;
+  repeated TensorManifestEntry tensor_manifest = 13;
 }
 
 message SubmitLocalUpdateResponse {

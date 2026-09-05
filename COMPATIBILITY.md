@@ -22,7 +22,15 @@ For protobuf changes:
 - security-required fields may become mandatory only with an explicit protocol/version transition
 - a server must reject an update it cannot validate rather than silently interpreting an unknown payload format
 
-The current network model format `application/x-npy-f32` is a constrained pre-v1 transport representation, not the final stable model-envelope contract.
+The network model envelope currently uses `protocol_version = 1`. Payload-bearing `GlobalModel` and `SubmitLocalUpdateRequest` messages bind the transfer to an immutable `model_id`, a canonical tensor manifest, and a SHA-256 schema digest. The current tensor manifest describes one flattened `float32` vector transported as `application/x-npy-f32`; it does not claim arbitrary multi-tensor serialization support.
+
+Envelope-v1 update submissions are fail-closed: workers must send the supported protocol version, the coordinator's exact model ID, a manifest consistent with the payload, and the matching schema SHA-256. A payload-free bootstrap global model carries protocol/model identity but no invented tensor schema. Once a payload-bearing global model exists, submitted updates must match that authoritative schema.
+
+The canonical schema digest is language-neutral rather than protobuf-serialization-dependent. It hashes the domain `ztfl-model-schema-v1\0`, the manifest entry count, length-delimited UTF-8 tensor name and dtype, dimension count and big-endian uint64 dimensions, and big-endian uint64 element count. Go and Python tests pin the same digest vector.
+
+The new envelope fields are additive. Existing protobuf field numbers remain unchanged, and legacy durable model records that contain the supported NPY payload format can still be recovered because the coordinator derives envelope metadata at the network boundary when serving them. This does not mean arbitrary pre-envelope clients are supported for new update submissions: workers submitting updates must implement envelope v1.
+
+Coordinator and worker processes must use the same `ZTFL_MODEL_ID`. Changing that identity is an operator-visible compatibility change and should be treated as selecting a different model contract, not as a transparent rename.
 
 ## Platform tiers
 
@@ -44,4 +52,4 @@ After v1.0, documented stable APIs should receive at least one minor-release dep
 
 ## Version skew
 
-Before v1.0, coordinator and worker components should normally use the same repository/release version. Stable v1 will define an explicit supported worker/server skew window once protocol negotiation is implemented.
+Before v1.0, coordinator and worker components should normally use the same repository/release version. Envelope protocol versioning prevents silent interpretation of unknown model schemas, but it is not yet a negotiated worker/server compatibility window. Stable v1 will define an explicit supported skew window once protocol negotiation is implemented.
