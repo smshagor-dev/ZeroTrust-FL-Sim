@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -137,13 +138,57 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create clean recovery target artifact store: %v", err)
 	}
-	restored, err := Restore(ctx, RestoreConfig{
+	restoreConfig := RestoreConfig{
 		PostgresDSN:      dsn,
 		Artifacts:        restoreArtifacts,
 		InputDir:         bundleDir,
 		PgRestorePath:    pgRestore,
 		AllowDestructive: true,
-	})
+	}
+
+	// A dirty PostgreSQL target must fail before the artifact authority is
+	// mutated. This proves validation order across the two recovery authorities.
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect dirty PostgreSQL target fixture: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `CREATE TABLE public.recovery_dirty_guard (id integer)`); err != nil {
+		_ = conn.Close(ctx)
+		t.Fatalf("create dirty PostgreSQL target fixture: %v", err)
+	}
+	if _, err := Restore(ctx, restoreConfig); err == nil {
+		_ = conn.Close(ctx)
+		t.Fatal("recovery restore accepted a dirty PostgreSQL target")
+	}
+	if _, err := client.StatObject(ctx, backup.Manifest.Artifact.Bucket, backup.Manifest.Artifact.Key, minio.StatObjectOptions{}); err == nil {
+		_ = conn.Close(ctx)
+		t.Fatal("recovery restore wrote the model artifact before rejecting the dirty PostgreSQL target")
+	}
+	if _, err := conn.Exec(ctx, `DROP TABLE public.recovery_dirty_guard`); err != nil {
+		_ = conn.Close(ctx)
+		t.Fatalf("remove dirty PostgreSQL target fixture: %v", err)
+	}
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close dirty PostgreSQL target fixture: %v", err)
+	}
+
+	// A dirty object namespace must fail before pg_restore mutates PostgreSQL.
+	dirtyKey := prefix + "/dirty-marker"
+	dirtyPayload := []byte("dirty")
+	if _, err := client.PutObject(ctx, bucket, dirtyKey, bytes.NewReader(dirtyPayload), int64(len(dirtyPayload)), minio.PutObjectOptions{}); err != nil {
+		t.Fatalf("create dirty S3 target fixture: %v", err)
+	}
+	if _, err := Restore(ctx, restoreConfig); err == nil {
+		t.Fatal("recovery restore accepted a dirty S3 target namespace")
+	}
+	if relations := recoveryPublicRelations(t, ctx, dsn); relations != 0 {
+		t.Fatalf("recovery restore mutated PostgreSQL before rejecting dirty S3 target: %d relations", relations)
+	}
+	if err := client.RemoveObject(ctx, bucket, dirtyKey, minio.RemoveObjectOptions{}); err != nil {
+		t.Fatalf("remove dirty S3 target fixture: %v", err)
+	}
+
+	restored, err := Restore(ctx, restoreConfig)
 	if err != nil {
 		t.Fatalf("restore disaster recovery bundle: %v", err)
 	}
@@ -189,6 +234,26 @@ func resetRecoveryDatabase(t *testing.T, ctx context.Context, dsn string) {
 			t.Fatalf("drop recovery fixture table %s: %v", table, err)
 		}
 	}
+}
+
+func recoveryPublicRelations(t *testing.T, ctx context.Context, dsn string) int {
+	t.Helper()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect recovery PostgreSQL fixture: %v", err)
+	}
+	defer conn.Close(ctx)
+	var count int
+	if err := conn.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public'
+		  AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+	`).Scan(&count); err != nil {
+		t.Fatalf("count recovery public relations: %v", err)
+	}
+	return count
 }
 
 func recoveryMinioClient(t *testing.T, endpoint, accessKey, secretKey string) *minio.Client {
