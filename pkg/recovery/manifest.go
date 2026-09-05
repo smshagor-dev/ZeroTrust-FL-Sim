@@ -35,10 +35,17 @@ type FileManifest struct {
 	SizeBytes int64  `json:"size_bytes"`
 }
 
+type ExperimentManifest struct {
+	ID           string    `json:"id"`
+	ConfigSHA256 string    `json:"config_sha256"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type DatabaseManifest struct {
 	PostgreSQLVersion    string              `json:"postgresql_version"`
 	PostgreSQLVersionNum int                 `json:"postgresql_version_num"`
 	StateSchemaVersion   int                 `json:"state_schema_version"`
+	Experiment           ExperimentManifest  `json:"experiment"`
 	ModelVersion         string              `json:"model_version"`
 	RoundID              uint64              `json:"round_id"`
 	Migrations           []MigrationManifest `json:"migrations"`
@@ -86,6 +93,9 @@ func (m Manifest) Validate() error {
 	}
 	if m.Database.StateSchemaVersion <= 0 || strings.TrimSpace(m.Database.ModelVersion) == "" {
 		return errors.New("recovery bundle coordinator state metadata is incomplete")
+	}
+	if err := validateExperimentManifest(m.Database.Experiment); err != nil {
+		return fmt.Errorf("validate recovery experiment metadata: %w", err)
 	}
 	if len(m.Database.Migrations) == 0 {
 		return errors.New("recovery bundle migration ledger is empty")
@@ -137,6 +147,19 @@ func (m Manifest) Validate() error {
 		if m.Artifact.File.SHA256 != m.Artifact.SHA256 || m.Artifact.File.SizeBytes != m.Artifact.SizeBytes {
 			return errors.New("recovery artifact file digest/size disagrees with artifact reference")
 		}
+	}
+	return nil
+}
+
+func validateExperimentManifest(experiment ExperimentManifest) error {
+	if experiment.ID == "" || experiment.ID != strings.TrimSpace(experiment.ID) || len(experiment.ID) > 256 || strings.ContainsAny(experiment.ID, "\x00\r\n") {
+		return errors.New("recovery experiment id is invalid")
+	}
+	if err := validateSHA256Hex(experiment.ConfigSHA256); err != nil {
+		return fmt.Errorf("config SHA-256: %w", err)
+	}
+	if experiment.CreatedAt.IsZero() || experiment.CreatedAt.Location() != time.UTC || !experiment.CreatedAt.Equal(experiment.CreatedAt.Truncate(time.Microsecond)) {
+		return errors.New("recovery experiment created_at must use UTC microsecond precision")
 	}
 	return nil
 }
