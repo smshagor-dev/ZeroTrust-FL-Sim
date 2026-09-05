@@ -104,8 +104,8 @@ jobs:
         run: chmod 0555 scripts/recovery/pg_dump_18_ci.sh scripts/recovery/pg_restore_18_ci.sh
       - name: Test PostgreSQL migrations, S3 artifacts, and audit durability
         run: go test -v ./pkg/coordinator -run 'Test(Postgres|S3ArtifactStore)' -count=1
-      - name: Test clean-room disaster recovery
-        run: go test -v ./pkg/recovery -run TestDisasterRecoveryBackupDestroyRestore -count=1
+      - name: Test clean-room disaster recovery and source immutability
+        run: go test -v ./pkg/recovery -run 'Test(DisasterRecoveryBackupDestroyRestore|RecoveryBackupDoesNotAutoMigrateSource)' -count=1
       - name: Build pinned recovery image
         run: docker build -f docker/Dockerfile.recovery -t ztfl-recovery:ci .
       - name: Capture S3-compatible fixture logs
