@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -69,12 +71,13 @@ func VerifyDisasterRecoveryAuditExport(data []byte, terminalSequence int64, term
 	if terminalSequence < 0 {
 		return nil, errors.New("audit terminal sequence must not be negative")
 	}
-	decoder := jsonNewStrictDecoder(bytes.NewReader(data))
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
 	records := make([]AuditRecord, 0)
 	for {
 		var record AuditRecord
 		err := decoder.Decode(&record)
-		if errors.Is(err, errJSONEOF) {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
