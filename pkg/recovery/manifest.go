@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	BundleSchemaVersion = 1
+	BundleSchemaVersion = 2
 	manifestFileName    = "manifest.json"
 	manifestChecksum    = "manifest.sha256"
 	postgresDumpPath    = "postgres.dump"
