@@ -75,7 +75,12 @@ function nonNegativeNumber(value: unknown): number | null {
 }
 
 function normalizeWorker(worker: WorkerState) {
-  if (!worker.id || (worker.role !== "Benign" && worker.role !== "Malicious")) {
+  const dataSize = nonNegativeNumber(worker.data_size);
+  if (
+    !worker.id ||
+    (worker.role !== "Benign" && worker.role !== "Malicious") ||
+    dataSize === null
+  ) {
     return null;
   }
   return {
@@ -84,7 +89,7 @@ function normalizeWorker(worker: WorkerState) {
     status: worker.status === "Online" ? "Online" : "Offline",
     lastUpdateAt: nonNegativeNumber(worker.last_update_at),
     latencyMs: nonNegativeNumber(worker.latency_ms),
-    dataSize: nonNegativeNumber(worker.data_size),
+    dataSize,
     trainingDurationMs: nonNegativeNumber(worker.training_duration_ms),
     loss: nonNegativeNumber(worker.loss),
     lastRound: nonNegativeNumber(worker.last_round),
