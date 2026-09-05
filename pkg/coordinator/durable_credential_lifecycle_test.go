@@ -24,7 +24,7 @@ func TestDurableCredentialRotationRollbackRestoresOldCredential(t *testing.T) {
 		t.Fatalf("create service: %v", err)
 	}
 	store := &failOnceStateStore{}
-	durable := &DurableService{service: service, store: store}
+	durable := newRollbackTestDurableService(t, service, store)
 	before := durable.captureSnapshot()
 
 	rotated, err := registry.Rotate(identity, entry.RegistrationID, "registration-2", time.Hour)
@@ -65,7 +65,7 @@ func TestDurableRevocationRollbackRestoresRegistrationAndPendingUpdate(t *testin
 		SampleCount: 1,
 	}
 	store := &failOnceStateStore{}
-	durable := &DurableService{service: service, store: store}
+	durable := newRollbackTestDurableService(t, service, store)
 	before := durable.captureSnapshot()
 
 	if _, err := registry.Revoke(identity.NodeID, "transient revocation"); err != nil {
