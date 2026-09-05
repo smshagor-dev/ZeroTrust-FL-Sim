@@ -19,9 +19,8 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-import torch
-
 import run_fl_sim as base
+import torch
 
 _BaseAsyncCoordinator = base.AsyncFederatedCoordinator
 _BaseObservableCoordinator = base.ObservableAsyncFederatedCoordinator
