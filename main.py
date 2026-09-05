@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 ROOT = Path(__file__).resolve().parent
 REQ = ROOT / "requirements.txt"
 PROTO = ROOT / "scripts/generate_python_proto.py"
@@ -285,7 +288,7 @@ def ensure_certs(
                 "-token-ttl",
                 "24h",
                 "-certificate-algorithm",
-                "ed25519",
+                args.certificate_algorithm,
                 "-clients",
                 ",".join(f"{node}=edge-worker" for node in nodes),
             ],
@@ -299,6 +302,24 @@ def port_open(host: str, port: int) -> bool:
             return True
     except OSError:
         return False
+
+
+def choose_dashboard_port(args: argparse.Namespace) -> None:
+    if not args.dashboard or not port_open(HOST, args.websocket_port):
+        return
+
+    requested = args.websocket_port
+    for candidate in range(requested + 1, requested + 50):
+        if not port_open(HOST, candidate):
+            args.websocket_port = candidate
+            log(
+                "DASHBOARD",
+                f"port {requested} already in use; using {candidate} instead",
+            )
+            return
+    raise OrchestratorError(
+        f"dashboard port {requested} already in use and no nearby port is free"
+    )
 
 
 @dataclass
@@ -366,7 +387,7 @@ class Manager:
                     log(child.tag, f"{child.name} | {line}")
                     append_dashboard_log(child.tag, child.name, line)
 
-    def wait(self) -> int:
+    def wait(self, *, keep_alive_after_final: bool = False) -> int:
         seen: set[int] = set()
         while not self.stop.wait(0.25):
             for child in self.children:
@@ -379,6 +400,13 @@ class Manager:
                     f"{child.name} exited with code {return_code}",
                 )
                 if child.final:
+                    if keep_alive_after_final and return_code == 0:
+                        log(
+                            "SYSTEM",
+                            "training complete; keep-alive is active "
+                            "until Ctrl+C",
+                        )
+                        continue
                     self.stop.set()
                     return return_code or 0
                 if not child.optional and not self.closing:
@@ -581,6 +609,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worker-interval", type=float, default=5)
     parser.add_argument("--server-name", default="coordinator.local")
     parser.add_argument(
+        "--certificate-algorithm",
+        choices=["ecdsa-p256", "ed25519", "mldsa65"],
+        default=os.getenv(
+            "ZTFL_CERTIFICATE_ALGORITHM",
+            "ecdsa-p256" if os.name == "nt" else "ed25519",
+        ),
+        help=(
+            "local mTLS certificate algorithm; Windows defaults to "
+            "ecdsa-p256 for Python gRPC compatibility"
+        ),
+    )
+    parser.add_argument(
         "--cert-dir",
         default=str(CERTS.relative_to(ROOT)),
     )
@@ -608,6 +648,11 @@ def parse_args() -> argparse.Namespace:
         "--dashboard",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--keep-alive",
+        action="store_true",
+        help="keep coordinator, workers, and dashboard running after training completes",
     )
     parser.add_argument(
         "--websocket-port",
@@ -645,13 +690,11 @@ def orchestrate(args: argparse.Namespace) -> int:
         )
         return 0
 
-    dashboard_command = prepare_dashboard(args)
-    ports = [args.grpc_port, args.metrics_port]
-    if dashboard_command:
-        ports.append(args.websocket_port)
-    for port in ports:
+    for port in [args.grpc_port, args.metrics_port]:
         if port_open(HOST, port):
             raise OrchestratorError(f"port {port} already in use")
+    choose_dashboard_port(args)
+    dashboard_command = prepare_dashboard(args)
 
     manager = Manager(args.shutdown_timeout)
     atexit.register(manager.shutdown)
@@ -814,7 +857,7 @@ def orchestrate(args: argparse.Namespace) -> int:
             "Go + secure workers + multi-process PyTorch + "
             "native C++ filtering are live",
         )
-        return manager.wait()
+        return manager.wait(keep_alive_after_final=args.keep_alive)
     finally:
         manager.shutdown()
 

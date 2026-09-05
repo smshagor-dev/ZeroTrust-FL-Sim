@@ -55,7 +55,7 @@ const NAV = [
 const DEMO: DashboardPayload = {
   mode: "preview",
   active: true,
-  startedAt: Date.now() / 1000 - 1104,
+  startedAt: 0,
   elapsedSeconds: 1104,
   currentRound: 12,
   totalRounds: 50,
@@ -123,9 +123,13 @@ function fmtDuration(seconds: number) {
   return `${h}:${m}:${s}`;
 }
 
+function coord(value: number) {
+  return Number(value.toFixed(3));
+}
+
 function spark(points: number[], color: string) {
   const min = Math.min(...points), max = Math.max(...points), span = max - min || 1;
-  const coords = points.map((p, i) => `${(i / Math.max(1, points.length - 1)) * 100},${32 - ((p - min) / span) * 26}`).join(" ");
+  const coords = points.map((p, i) => `${coord((i / Math.max(1, points.length - 1)) * 100)},${coord(32 - ((p - min) / span) * 26)}`).join(" ");
   return <svg className="spark" viewBox="0 0 100 36" preserveAspectRatio="none"><polyline points={coords} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke"/></svg>;
 }
 
@@ -143,7 +147,7 @@ function pathFor(values: number[], width: number, height: number, padding = 8, m
   const min = minOverride ?? Math.min(...values);
   const max = maxOverride ?? Math.max(...values);
   const span = max - min || 1;
-  return values.map((v, i) => `${i ? "L" : "M"}${padding + (i / Math.max(1, values.length - 1)) * (width - padding * 2)},${height - padding - ((v - min) / span) * (height - padding * 2)}`).join(" ");
+  return values.map((v, i) => `${i ? "L" : "M"}${coord(padding + (i / Math.max(1, values.length - 1)) * (width - padding * 2))},${coord(height - padding - ((v - min) / span) * (height - padding * 2))}`).join(" ");
 }
 
 function ChartGrid({ children, yLabels = ["100", "80", "60", "40", "20", "0"] }: { children: ReactNode; yLabels?: string[] }) {
@@ -209,7 +213,7 @@ function Controls({ data }: { data: DashboardPayload }) {
   const [agg,setAgg]=useState(data.aggregator || "median");
   const [notice,setNotice]=useState("");
   const save = () => { setNotice("Configuration staged for the next run"); setTimeout(()=>setNotice(""),2500); };
-  return <div className="card controls-card" id="settings"><div className="control-title">Attack Configuration</div><div className="control-grid three"><label>Attack Type<select value={attack} onChange={e=>setAttack(e.target.value)}><option value="gaussian">Gaussian Noise</option><option value="label_flip">Label Flipping</option><option value="sign_flip">Sign Flip</option><option value="adaptive">Adaptive</option><option value="collusion">Collusion</option></select></label><label>Malicious Workers<input value={data.maliciousWorkers} readOnly/></label><label>Noise Scale (σ)<input defaultValue="1.0"/></label></div><div className="control-title training-title">Training Configuration</div><div className="control-grid three"><label>Total Rounds<input value={data.totalRounds} readOnly/></label><label>Local Epochs<select defaultValue="1"><option>1</option><option>2</option><option>5</option></select></label><label>Aggregator<select value={agg} onChange={e=>setAgg(e.target.value)}><option value="median">Coordinate Median</option><option value="trimmed_mean">Trimmed Mean</option><option value="krum">Krum</option><option value="multi_krum">Multi-Krum</option></select></label></div><div className="control-actions"><button className="primary" onClick={save}>⚙ Update Configuration</button><button className="danger-btn" onClick={()=>{setAttack("gaussian");setAgg("median")}}>↻ Reset to Default</button></div>{notice&&<div className="toast">{notice}</div>}</div>;
+  return <div className="card controls-card" id="settings"><div className="control-title">Attack Configuration</div><div className="control-grid three"><label>Attack Type<select value={attack} onChange={e=>setAttack(e.target.value)}><option value="gaussian">Gaussian Noise</option><option value="label_flip">Label Flipping</option><option value="sign_flip">Sign Flip</option><option value="adaptive">Adaptive</option><option value="collusion">Collusion</option></select></label><label>Malicious Workers<input value={data.maliciousWorkers} readOnly suppressHydrationWarning/></label><label>Noise Scale (σ)<input defaultValue="1.0" suppressHydrationWarning/></label></div><div className="control-title training-title">Training Configuration</div><div className="control-grid three"><label>Total Rounds<input value={data.totalRounds} readOnly suppressHydrationWarning/></label><label>Local Epochs<select defaultValue="1"><option>1</option><option>2</option><option>5</option></select></label><label>Aggregator<select value={agg} onChange={e=>setAgg(e.target.value)}><option value="median">Coordinate Median</option><option value="trimmed_mean">Trimmed Mean</option><option value="krum">Krum</option><option value="multi_krum">Multi-Krum</option></select></label></div><div className="control-actions"><button className="primary" onClick={save}>⚙ Update Configuration</button><button className="danger-btn" onClick={()=>{setAttack("gaussian");setAgg("median")}}>↻ Reset to Default</button></div>{notice&&<div className="toast">{notice}</div>}</div>;
 }
 
 export default function Dashboard() {

@@ -24,6 +24,7 @@ Desktop.ini
 *.jwt
 certs/*
 !certs/.gitkeep
+security/certs/
 
 # Go
 bin/
