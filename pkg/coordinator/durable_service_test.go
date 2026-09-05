@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 	ztsecurity "github.com/smshagor-dev/ZeroTrust-FL-Sim/pkg/security"
@@ -28,13 +29,24 @@ func (s *failOnceStateStore) Commit(_ context.Context, snapshot StateSnapshot) e
 	return nil
 }
 
+func newRollbackTestDurableService(t *testing.T, service *Service, store StateStore) *DurableService {
+	t.Helper()
+	durable := &DurableService{service: service, store: store}
+	experiment, err := newExperimentMetadata(ExperimentConfig{}, durable.basePolicy(), time.Now())
+	if err != nil {
+		t.Fatalf("initialize rollback test experiment metadata: %v", err)
+	}
+	durable.experiment = experiment
+	return durable
+}
+
 func TestCommitOrRollbackRestoresPreviousStateInMemoryAndStore(t *testing.T) {
 	base, err := NewService(ztsecurity.NewRegistrationStore(), Config{})
 	if err != nil {
 		t.Fatalf("create coordinator service: %v", err)
 	}
 	store := &failOnceStateStore{}
-	durable := &DurableService{service: base, store: store}
+	durable := newRollbackTestDurableService(t, base, store)
 	before := durable.captureSnapshot()
 
 	base.modelMu.Lock()
