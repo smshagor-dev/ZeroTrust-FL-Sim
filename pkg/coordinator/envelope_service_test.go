@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
@@ -62,6 +63,20 @@ func TestEnvelopeDecoratesGlobalModel(t *testing.T) {
 	}
 	if len(entry.GetDimensions()) != 1 || entry.GetDimensions()[0] != 3 {
 		t.Fatalf("unexpected dimensions: %v", entry.GetDimensions())
+	}
+}
+
+func TestModelSchemaDigestMatchesCrossLanguageVector(t *testing.T) {
+	manifest := []*flv1.TensorManifestEntry{{
+		Name:         flatTensorName,
+		Dtype:        float32DType,
+		Dimensions:   []uint64{3},
+		ElementCount: 3,
+	}}
+	digest := modelSchemaDigest(manifest)
+	const expected = "cff606025d8af83f907bc6d4c6b82000e3c22b67d16bf8a3e9999f816c1c5e64"
+	if actual := hex.EncodeToString(digest[:]); actual != expected {
+		t.Fatalf("schema digest = %s, want %s", actual, expected)
 	}
 }
 
@@ -189,16 +204,16 @@ func validEnvelopeRequest(t *testing.T, modelID, baseVersion string, values []fl
 	}
 	schema := modelSchemaDigest(manifest)
 	return &flv1.SubmitLocalUpdateRequest{
-		NodeId:            "worker-1",
-		RegistrationId:    "registration-1",
-		RoundId:           0,
-		BaseModelVersion:  baseVersion,
-		WeightsPayload:    payload,
-		WeightsFormat:     networkWeightsFormat,
-		ProtocolVersion:   ModelProtocolVersion,
-		ModelId:           modelID,
-		SchemaSha256:      schema[:],
-		TensorManifest:    cloneManifest(manifest),
+		NodeId:           "worker-1",
+		RegistrationId:   "registration-1",
+		RoundId:          0,
+		BaseModelVersion: baseVersion,
+		WeightsPayload:   payload,
+		WeightsFormat:    networkWeightsFormat,
+		ProtocolVersion:  ModelProtocolVersion,
+		ModelId:          modelID,
+		SchemaSha256:     schema[:],
+		TensorManifest:   cloneManifest(manifest),
 	}
 }
 
