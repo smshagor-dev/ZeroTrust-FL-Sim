@@ -129,7 +129,7 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	if err != nil {
 		return StateSnapshot{}, fmt.Errorf("load PostgreSQL coordinator state: %w", err)
 	}
-	if stateSchemaVersion != coordinatorStateSchemaVersion {
+	if stateSchemaVersion != legacyCoordinatorStateSchemaVersion && stateSchemaVersion != coordinatorStateSchemaVersion {
 		return StateSnapshot{}, fmt.Errorf("unsupported coordinator state schema version %d", stateSchemaVersion)
 	}
 	if len(modelBytes) == 0 {
@@ -186,7 +186,7 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	}
 
 	snapshot.Model = model
-	if err := validateStateSnapshot(snapshot); err != nil {
+	if err := validateStateSnapshotForSchema(snapshot, stateSchemaVersion); err != nil {
 		return StateSnapshot{}, fmt.Errorf("validate PostgreSQL coordinator state: %w", err)
 	}
 	return cloneStateSnapshot(snapshot), nil
