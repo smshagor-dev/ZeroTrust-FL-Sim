@@ -22,18 +22,20 @@ Release gates:
 
 ## v0.6 — Durable coordinator state
 
-Foundation status: issue #38 introduced the schema-versioned atomic filesystem `StateStore` and restart-recovery gate. Issue #42 added the PostgreSQL `StateStore`, explicit database migrations, transactional whole-snapshot commits, PostgreSQL CI coverage, and backup/restore documentation. Issue #44 added content-addressed S3-compatible global-model artifacts with PostgreSQL metadata references, legacy inline-row migration, and object-integrity recovery checks. Issue #46 adds a PostgreSQL append-only-by-application-contract, hash-chained audit trail for successful recovery-critical transitions plus a verified bounded NDJSON exporter. These slices establish durable single-coordinator metadata/model recovery and durable transition audit export but do **not** complete v0.6; stronger backup/restore automation and explicit credential-rotation/revocation lifecycle remain required.
+Implementation status: issue #38 introduced the schema-versioned atomic filesystem `StateStore` and restart-recovery gate. Issue #42 added the PostgreSQL `StateStore`, explicit database migrations, transactional whole-snapshot commits, PostgreSQL CI coverage, and backup/restore documentation. Issue #44 added content-addressed S3-compatible global-model artifacts with PostgreSQL metadata references, legacy inline-row migration, and object-integrity recovery checks. Issue #46 added the PostgreSQL append-only-by-application-contract, hash-chained audit trail for successful recovery-critical transitions plus a verified bounded NDJSON exporter. Issue #48 added explicit runtime registration-credential generations, self-service rotation, admin-only lease-scoped revocation, durable revocation tombstones, replay protection, and lifecycle audit events. Issue #50 adds exported PostgreSQL MVCC snapshots, versioned recovery manifests, verified PostgreSQL/S3/audit backup bundles, a pinned PostgreSQL 18.6 recovery image, source-schema immutability checks, clean-target enforcement, and a destructive clean-room backup/destroy/restore CI gate.
+
+These slices establish the durable storage, model artifact, audit, credential-lifecycle, and disaster-recovery foundations for the supported single-coordinator reference profile. v0.6 remains open until experiment identity/metadata is explicitly persisted and recovered rather than inferred from model/round state. The project does **not** claim multi-coordinator HA/consensus, CRL/OCSP-based PKI revocation, JWT signing-key rotation, KMS/HSM integration, encrypted backup media, authenticated backup signatures, or guaranteed RPO/RTO.
 
 Release gates:
 
 - persistent experiment, round, model-version, registration, and update metadata
 - crash-safe global-model commits
 - idempotent recovery after coordinator restart
-- database migrations and backup/restore documentation
-- durable audit event export
-- explicit lease and credential-rotation lifecycle
+- database migrations and verified PostgreSQL/S3 backup/restore workflow
+- durable tamper-evident audit event export
+- explicit lease and runtime registration credential-rotation/revocation lifecycle
 
-Target reference stack: PostgreSQL for durable metadata and durable transition audit records, an S3-compatible object store for model artifacts, and optional Redis for distributed leases/rate limits. Implementations must keep storage interfaces replaceable.
+Target reference stack: PostgreSQL for durable metadata and durable transition audit records, an S3-compatible object store for model artifacts, and optional Redis for future distributed leases/rate limits. Implementations must keep storage interfaces replaceable.
 
 ## v0.7 — Stable protocol and deployment surface
 
