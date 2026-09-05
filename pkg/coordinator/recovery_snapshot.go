@@ -28,12 +28,13 @@ type RecoveryAuditHead struct {
 }
 
 // RecoveryMetadata is the database metadata required to bind a PostgreSQL dump
-// to the global-model artifact and audit chain captured from the same MVCC
-// snapshot.
+// to the experiment identity, global-model artifact and audit chain captured
+// from the same MVCC snapshot.
 type RecoveryMetadata struct {
 	PostgreSQLVersion    string              `json:"postgresql_version"`
 	PostgreSQLVersionNum int                 `json:"postgresql_version_num"`
 	StateSchemaVersion   int                 `json:"state_schema_version"`
+	Experiment           ExperimentMetadata  `json:"experiment"`
 	ModelVersion         string              `json:"model_version"`
 	RoundID              uint64              `json:"round_id"`
 	Artifact             *ModelArtifactRef   `json:"artifact,omitempty"`
@@ -107,6 +108,7 @@ func readRecoveryMetadataTx(ctx context.Context, tx pgx.Tx) (RecoveryMetadata, e
 
 	var (
 		stateSchemaVersion int
+		policyJSON         []byte
 		modelBytes         []byte
 		artifactBucket     *string
 		artifactKey        *string
@@ -114,13 +116,14 @@ func readRecoveryMetadataTx(ctx context.Context, tx pgx.Tx) (RecoveryMetadata, e
 		artifactSize       *int64
 	)
 	if err := tx.QueryRow(ctx, `
-		SELECT state_schema_version, model_proto,
+		SELECT state_schema_version, policy, model_proto,
 		       model_artifact_bucket, model_artifact_key,
 		       model_artifact_sha256, model_artifact_size_bytes
 		FROM ztfl_coordinator_state
 		WHERE singleton_id = 1
 	`).Scan(
 		&stateSchemaVersion,
+		&policyJSON,
 		&modelBytes,
 		&artifactBucket,
 		&artifactKey,
@@ -139,6 +142,14 @@ func readRecoveryMetadataTx(ctx context.Context, tx pgx.Tx) (RecoveryMetadata, e
 		return RecoveryMetadata{}, errors.New("coordinator recovery metadata is missing the global model envelope")
 	}
 
+	var policy StatePolicy
+	if err := decodePostgresJSON(policyJSON, &policy, "recovery policy"); err != nil {
+		return RecoveryMetadata{}, err
+	}
+	if err := validateExperimentMetadata(policy.Experiment); err != nil {
+		return RecoveryMetadata{}, fmt.Errorf("validate recovery experiment metadata: %w", err)
+	}
+
 	model := &flv1.GlobalModel{}
 	if err := proto.Unmarshal(modelBytes, model); err != nil {
 		return RecoveryMetadata{}, fmt.Errorf("decode coordinator recovery model envelope: %w", err)
@@ -151,6 +162,7 @@ func readRecoveryMetadataTx(ctx context.Context, tx pgx.Tx) (RecoveryMetadata, e
 		PostgreSQLVersion:    serverVersion,
 		PostgreSQLVersionNum: parsedVersionNum,
 		StateSchemaVersion:   stateSchemaVersion,
+		Experiment:           policy.Experiment,
 		ModelVersion:         model.GetModelVersion(),
 		RoundID:              model.GetRoundId(),
 	}
