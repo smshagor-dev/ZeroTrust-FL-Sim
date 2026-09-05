@@ -35,6 +35,7 @@ _LOGS: list[str] = []
 _WORKER_RESULTS: dict[str, dict[str, Any]] = {}
 _SYSTEM_SAMPLES: list[dict[str, Any]] = []
 _STATE_LOCK = threading.Lock()
+_WRITE_LOCK = threading.Lock()
 _SAMPLER_STOP = threading.Event()
 _ACTIVE_COORDINATOR: Any | None = None
 _ACTIVE = False
@@ -76,9 +77,9 @@ def _set_active(active: bool) -> None:
 
 
 def _record_worker_results(
-    coordinator: Any,
     results: list[Any],
     failures: set[str],
+    round_id: int,
 ) -> None:
     now = time.time()
     with _STATE_LOCK:
@@ -95,9 +96,7 @@ def _record_worker_results(
         for node_id in failures:
             previous = _WORKER_RESULTS.setdefault(node_id, {})
             previous["last_update_at"] = now
-            previous["last_round"] = int(
-                getattr(coordinator, "_busy_round", {}).get(node_id, 0)
-            ) or previous.get("last_round")
+            previous["last_round"] = round_id
             previous["succeeded"] = False
 
 
@@ -105,7 +104,10 @@ def _worker_snapshot(coordinator: Any | None) -> list[dict[str, Any]]:
     if coordinator is None:
         return []
     with _STATE_LOCK:
-        latest = {node_id: dict(value) for node_id, value in _WORKER_RESULTS.items()}
+        latest = {
+            node_id: dict(value)
+            for node_id, value in _WORKER_RESULTS.items()
+        }
 
     workers: list[dict[str, Any]] = []
     processes = getattr(coordinator, "_processes", {})
@@ -135,7 +137,7 @@ def _worker_snapshot(coordinator: Any | None) -> list[dict[str, Any]]:
 
 def _sample_system() -> None:
     gpu_memory_percent: float | None = None
-    if torch.cuda.is_available():
+    if "cuda" in _META.device.lower() and torch.cuda.is_available():
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info()
             if total_bytes > 0:
@@ -170,7 +172,10 @@ def _state() -> dict[str, Any]:
     if not workers:
         configured_malicious = max(
             0,
-            min(_META.clients, round(_META.clients * _META.malicious_fraction)),
+            min(
+                _META.clients,
+                round(_META.clients * _META.malicious_fraction),
+            ),
         )
         benign = _META.clients - configured_malicious
         malicious = configured_malicious
@@ -194,13 +199,14 @@ def _state() -> dict[str, Any]:
 
 
 def _write_state() -> None:
-    RUNTIME.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_FILE.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps(_state(), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    os.replace(tmp, STATE_FILE)
+    with _WRITE_LOCK:
+        RUNTIME.mkdir(parents=True, exist_ok=True)
+        tmp = STATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(_state(), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        os.replace(tmp, STATE_FILE)
 
 
 def _system_sampler() -> None:
@@ -245,7 +251,10 @@ def _emit_round(metrics: Any) -> None:
     )
     if metrics.attack_mitigated is not None:
         verdict = "mitigated" if metrics.attack_mitigated else "not mitigated"
-        _log(f"[SECURITY] Byzantine attack {verdict} in round {metrics.round_id}")
+        _log(
+            f"[SECURITY] Byzantine attack {verdict} "
+            f"in round {metrics.round_id}"
+        )
     _write_state()
     print("LIVE_ROUND " + json.dumps(payload, sort_keys=True), flush=True)
 
@@ -260,7 +269,7 @@ class StreamingAsyncFederatedCoordinator(_BaseAsyncCoordinator):
 
     def _collect_round_results(self, **kwargs: Any):  # type: ignore[no-untyped-def]
         results, failures = super()._collect_round_results(**kwargs)
-        _record_worker_results(self, results, failures)
+        _record_worker_results(results, failures, int(kwargs["round_id"]))
         _write_state()
         return results, failures
 
@@ -285,7 +294,7 @@ class StreamingObservableAsyncFederatedCoordinator(_BaseObservableCoordinator):
 
     def _collect_round_results(self, **kwargs: Any):  # type: ignore[no-untyped-def]
         results, failures = super()._collect_round_results(**kwargs)
-        _record_worker_results(self, results, failures)
+        _record_worker_results(results, failures, int(kwargs["round_id"]))
         _write_state()
         return results, failures
 
