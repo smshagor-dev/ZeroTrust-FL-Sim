@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	flv1 "github.com/smshagor-dev/ZeroTrust-FL-Sim/gen/go/zerotrust/fl/v1"
 )
 
 const (
@@ -35,7 +33,7 @@ type ExperimentMetadata struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-func newExperimentMetadata(cfg ExperimentConfig, policy StatePolicy, model *flv1.GlobalModel, now time.Time) (ExperimentMetadata, error) {
+func newExperimentMetadata(cfg ExperimentConfig, policy StatePolicy, now time.Time) (ExperimentMetadata, error) {
 	id := strings.TrimSpace(cfg.ID)
 	if id == "" {
 		id = defaultExperimentID
@@ -46,7 +44,7 @@ func newExperimentMetadata(cfg ExperimentConfig, policy StatePolicy, model *flv1
 
 	configDigest := strings.TrimSpace(cfg.ConfigSHA256)
 	if configDigest == "" {
-		computed, err := coordinatorVisibleExperimentDigest(policy, model)
+		computed, err := coordinatorVisibleExperimentDigest(policy)
 		if err != nil {
 			return ExperimentMetadata{}, err
 		}
@@ -67,16 +65,7 @@ func newExperimentMetadata(cfg ExperimentConfig, policy StatePolicy, model *flv1
 	return metadata, nil
 }
 
-func coordinatorVisibleExperimentDigest(policy StatePolicy, model *flv1.GlobalModel) (string, error) {
-	if model == nil {
-		return "", errors.New("initial global model is required to fingerprint experiment configuration")
-	}
-	type modelIdentity struct {
-		ModelVersion  string `json:"model_version"`
-		RoundID       uint64 `json:"round_id"`
-		WeightsFormat string `json:"weights_format"`
-		SHA256        string `json:"sha256,omitempty"`
-	}
+func coordinatorVisibleExperimentDigest(policy StatePolicy) (string, error) {
 	type coordinatorIdentity struct {
 		SchemaVersion       int           `json:"schema_version"`
 		LeaseTTLNS          time.Duration `json:"lease_ttl_ns"`
@@ -84,7 +73,6 @@ func coordinatorVisibleExperimentDigest(policy StatePolicy, model *flv1.GlobalMo
 		MinUpdates          int           `json:"min_updates"`
 		MaxUpdatesPerMinute int           `json:"max_updates_per_minute"`
 		AggregationMethod   string        `json:"aggregation_method"`
-		InitialModel        modelIdentity `json:"initial_model"`
 	}
 
 	payload := coordinatorIdentity{
@@ -94,12 +82,6 @@ func coordinatorVisibleExperimentDigest(policy StatePolicy, model *flv1.GlobalMo
 		MinUpdates:          policy.MinUpdates,
 		MaxUpdatesPerMinute: policy.MaxUpdatesPerMinute,
 		AggregationMethod:   policy.AggregationMethod,
-		InitialModel: modelIdentity{
-			ModelVersion:  model.GetModelVersion(),
-			RoundID:       model.GetRoundId(),
-			WeightsFormat: model.GetWeightsFormat(),
-			SHA256:        hex.EncodeToString(model.GetSha256()),
-		},
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
