@@ -18,7 +18,7 @@ type WorkerState = {
   status?: "Online" | "Offline";
   last_update_at?: number | null;
   latency_ms?: number | null;
-  data_size?: number;
+  data_size?: number | null;
   training_duration_ms?: number | null;
   loss?: number | null;
   last_round?: number | null;
@@ -84,7 +84,7 @@ function normalizeWorker(worker: WorkerState) {
     status: worker.status === "Online" ? "Online" : "Offline",
     lastUpdateAt: nonNegativeNumber(worker.last_update_at),
     latencyMs: nonNegativeNumber(worker.latency_ms),
-    dataSize: nonNegativeNumber(worker.data_size) ?? 0,
+    dataSize: nonNegativeNumber(worker.data_size),
     trainingDurationMs: nonNegativeNumber(worker.training_duration_ms),
     loss: nonNegativeNumber(worker.loss),
     lastRound: nonNegativeNumber(worker.last_round),
