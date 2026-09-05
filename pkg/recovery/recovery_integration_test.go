@@ -63,7 +63,12 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 
 	payload := recoveryNPY([]float32{1.25, -2.5, 0.75})
 	digest := sha256.Sum256(payload)
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	experiment := coordinator.ExperimentMetadata{
+		ID:           "disaster-recovery-integration",
+		ConfigSHA256: "4444444444444444444444444444444444444444444444444444444444444444",
+		CreatedAt:    now,
+	}
 	state := coordinator.StateSnapshot{
 		Policy: coordinator.StatePolicy{
 			LeaseTTL:            5 * time.Minute,
@@ -71,6 +76,7 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 			MinUpdates:          2,
 			MaxUpdatesPerMinute: 60,
 			AggregationMethod:   "median",
+			Experiment:          experiment,
 		},
 		Model: &flv1.GlobalModel{
 			ModelVersion:   "round-3-recovery-test",
@@ -98,7 +104,7 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 	}
 	event := coordinator.AuditEvent{
 		SchemaVersion: 1,
-		OccurredAt:    now.Truncate(time.Microsecond),
+		OccurredAt:    now,
 		Type:          coordinator.AuditEventStateInitialized,
 		Outcome:       "success",
 		RoundID:       state.Model.GetRoundId(),
@@ -120,7 +126,7 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create disaster recovery backup: %v", err)
 	}
-	if backup.Manifest.Artifact == nil || backup.Manifest.Audit.HeadSequence != 1 {
+	if backup.Manifest.Artifact == nil || backup.Manifest.Audit.HeadSequence != 1 || backup.Manifest.Database.Experiment.ID != experiment.ID {
 		t.Fatalf("unexpected recovery backup manifest: %#v", backup.Manifest)
 	}
 
@@ -204,6 +210,9 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 	loaded, err := verifiedStore.Load(ctx)
 	if err != nil {
 		t.Fatalf("load restored state: %v", err)
+	}
+	if loaded.Policy.Experiment != experiment {
+		t.Fatalf("restored experiment metadata = %#v, want %#v", loaded.Policy.Experiment, experiment)
 	}
 	if loaded.Model.GetModelVersion() != state.Model.GetModelVersion() || loaded.Model.GetRoundId() != state.Model.GetRoundId() {
 		t.Fatalf("restored model = %q round %d", loaded.Model.GetModelVersion(), loaded.Model.GetRoundId())
