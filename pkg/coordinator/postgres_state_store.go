@@ -231,21 +231,21 @@ func (s *PostgresStateStore) Commit(ctx context.Context, snapshot StateSnapshot)
 	if err != nil {
 		return fmt.Errorf("encode PostgreSQL policy: %w", err)
 	}
-	pendingJSON, err := json.Marshal(canonical.Pending)
+	pendingJSON, err := marshalPostgresStateArray(canonical.Pending, "pending updates")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL pending updates: %w", err)
+		return err
 	}
-	registrationsJSON, err := json.Marshal(canonical.Registrations)
+	registrationsJSON, err := marshalPostgresStateArray(canonical.Registrations, "registrations")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL registrations: %w", err)
+		return err
 	}
-	noncesJSON, err := json.Marshal(canonical.Nonces)
+	noncesJSON, err := marshalPostgresStateArray(canonical.Nonces, "replay nonces")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL replay nonces: %w", err)
+		return err
 	}
-	rateWindowsJSON, err := json.Marshal(canonical.RateWindows)
+	rateWindowsJSON, err := marshalPostgresStateArray(canonical.RateWindows, "rate windows")
 	if err != nil {
-		return fmt.Errorf("encode PostgreSQL rate windows: %w", err)
+		return err
 	}
 
 	var artifactBucket any
