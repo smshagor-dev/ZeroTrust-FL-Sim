@@ -104,13 +104,21 @@ func postgresToolVersion(ctx context.Context, toolPath, label string) (int, stri
 	return major, version, nil
 }
 
-func requireCompatiblePostgresTool(toolMajor, serverVersionNum int, label string) error {
-	if serverVersionNum <= 0 {
-		return errors.New("PostgreSQL server version number is invalid")
+func postgresMajorFromVersionNum(versionNum int) (int, error) {
+	if versionNum <= 0 {
+		return 0, errors.New("PostgreSQL server version number is invalid")
 	}
-	serverMajor := serverVersionNum / 10000
-	if serverMajor < 10 {
-		serverMajor = serverVersionNum / 10000
+	major := versionNum / 10000
+	if major <= 0 {
+		return 0, fmt.Errorf("parse PostgreSQL server version number %d", versionNum)
+	}
+	return major, nil
+}
+
+func requireCompatiblePostgresTool(toolMajor, serverVersionNum int, label string) error {
+	serverMajor, err := postgresMajorFromVersionNum(serverVersionNum)
+	if err != nil {
+		return err
 	}
 	if toolMajor < serverMajor {
 		return fmt.Errorf("%s major version %d is older than PostgreSQL server major version %d", label, toolMajor, serverMajor)
@@ -156,7 +164,7 @@ func postgresCommandEnv(password string) []string {
 	return environment
 }
 
-func ensureCleanPostgresTarget(ctx context.Context, dsn string) error {
+func ensureCleanPostgresTarget(ctx context.Context, dsn string, sourceVersionNum int) error {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("connect clean recovery target: %w", err)
@@ -165,16 +173,52 @@ func ensureCleanPostgresTarget(ctx context.Context, dsn string) error {
 	if err := pool.Ping(ctx); err != nil {
 		return fmt.Errorf("ping clean recovery target: %w", err)
 	}
-	var publicTables int
+
+	var targetVersionText string
+	if err := pool.QueryRow(ctx, `SHOW server_version_num`).Scan(&targetVersionText); err != nil {
+		return fmt.Errorf("read recovery target PostgreSQL version: %w", err)
+	}
+	targetVersionNum, err := strconv.Atoi(targetVersionText)
+	if err != nil {
+		return fmt.Errorf("parse recovery target PostgreSQL version %q", targetVersionText)
+	}
+	targetMajor, err := postgresMajorFromVersionNum(targetVersionNum)
+	if err != nil {
+		return err
+	}
+	sourceMajor, err := postgresMajorFromVersionNum(sourceVersionNum)
+	if err != nil {
+		return err
+	}
+	if targetMajor < sourceMajor {
+		return fmt.Errorf("recovery target PostgreSQL major version %d is older than backup source major version %d", targetMajor, sourceMajor)
+	}
+
+	var publicRelations int
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM pg_catalog.pg_tables
-		WHERE schemaname = 'public'
-	`).Scan(&publicTables); err != nil {
-		return fmt.Errorf("inspect recovery target tables: %w", err)
+		FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public'
+		  AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+	`).Scan(&publicRelations); err != nil {
+		return fmt.Errorf("inspect recovery target relations: %w", err)
 	}
-	if publicTables != 0 {
-		return fmt.Errorf("recovery target database is not clean: public schema contains %d tables", publicTables)
+	var publicFunctions int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM pg_catalog.pg_proc p
+		JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = 'public'
+	`).Scan(&publicFunctions); err != nil {
+		return fmt.Errorf("inspect recovery target functions: %w", err)
+	}
+	if publicRelations != 0 || publicFunctions != 0 {
+		return fmt.Errorf(
+			"recovery target database is not clean: public schema contains %d relations and %d functions",
+			publicRelations,
+			publicFunctions,
+		)
 	}
 	return nil
 }
