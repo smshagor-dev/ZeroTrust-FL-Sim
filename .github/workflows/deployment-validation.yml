@@ -27,14 +27,9 @@ jobs:
       - name: Lint and render production chart
         run: |
           set -euo pipefail
-          DIGEST="sha256:$(printf '0%.0s' {1..64})"
-          helm lint deploy/helm/zerotrust-fl \
-            --set coordinator.image.digest="$DIGEST" \
-            --set 'workers[0].image.digest'="$DIGEST"
-          helm template ztfl deploy/helm/zerotrust-fl \
-            --set coordinator.image.digest="$DIGEST" \
-            --set 'workers[0].image.digest'="$DIGEST" \
-            > /tmp/ztfl-rendered.yaml
+          VALUES=deploy/helm/zerotrust-fl/values-ci.yaml
+          helm lint deploy/helm/zerotrust-fl -f "$VALUES"
+          helm template ztfl deploy/helm/zerotrust-fl -f "$VALUES" > /tmp/ztfl-rendered.yaml
       - name: Enforce production render invariants
         run: python scripts/validate_k8s_render.py /tmp/ztfl-rendered.yaml
       - name: Parse resources with kubectl
