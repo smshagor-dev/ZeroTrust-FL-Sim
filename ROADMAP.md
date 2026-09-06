@@ -41,6 +41,8 @@ Target reference stack: PostgreSQL for durable metadata and durable transition a
 
 ## v0.7 — Stable protocol and deployment surface
 
+Implementation status: issue #63 added the versioned v1 model envelope with explicit model identity, protocol version, canonical schema digest, tensor manifest, dtype/dimensions, payload digest validation, and Go/Python cross-language enforcement. Issue #65 adds an append-only protobuf evolution policy plus repository-owned descriptor compatibility checks in pull-request CI so established `zerotrust.fl.v1` messages, fields, enum values, and RPC signatures cannot be removed, renamed, renumbered, or retyped silently.
+
 Release gates:
 
 - versioned model envelope with model ID, schema hash, tensor manifest, dtype, dimensions, digest, and protocol version
