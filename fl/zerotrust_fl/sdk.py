@@ -161,8 +161,8 @@ class WorkerClient:
 
 
 __all__ = [
-    "SDK_API_VERSION",
     "MODEL_PROTOCOL_VERSION",
+    "SDK_API_VERSION",
     "Enrollment",
     "HeartbeatStatus",
     "ModelSnapshot",
