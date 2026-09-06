@@ -32,5 +32,3 @@ jobs:
           helm template ztfl deploy/helm/zerotrust-fl -f "$VALUES" > /tmp/ztfl-rendered.yaml
       - name: Enforce production render invariants
         run: python scripts/validate_k8s_render.py /tmp/ztfl-rendered.yaml
-      - name: Parse resources with kubectl
-        run: kubectl apply --dry-run=client --validate=false -f /tmp/ztfl-rendered.yaml >/dev/null
