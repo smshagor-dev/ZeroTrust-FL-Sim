@@ -4,7 +4,6 @@ import argparse
 import json
 
 import pytest
-
 import zerotrust_fl
 from zerotrust_fl import cli
 from zerotrust_fl.sdk import SDK_API_VERSION, Enrollment, WorkerConfig
