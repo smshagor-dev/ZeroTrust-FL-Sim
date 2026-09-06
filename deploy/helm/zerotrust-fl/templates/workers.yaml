@@ -83,7 +83,7 @@ spec:
         - name: pki
           secret:
             secretName: {{ required (printf "workers[%d].secretName is required" $index) $worker.secretName | quote }}
-            defaultMode: 0400
+            defaultMode: 0440
         - name: tmp
           emptyDir: {}
 ---
