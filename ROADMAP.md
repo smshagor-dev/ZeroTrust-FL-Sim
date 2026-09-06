@@ -57,6 +57,8 @@ Release gates:
 
 ## v0.8 — Security and supply-chain hardening
 
+Implementation status: issue #69 adds fail-closed Python/Go/npm dependency auditing, high-confidence Python SAST, Gitleaks secret scanning, reviewed direct-dependency license policy, HIGH/CRITICAL Trivy gates for all supported OCI images, Go model-parser fuzzing, native Byzantine aggregation sanitizer fuzzing, SPDX release SBOMs, keyless Cosign signatures, SBOM attestations, build provenance attestations, an OpenSSF Scorecard evidence workflow, and a documented NIST SSDF engineering mapping. The independent-assessment gate is intentionally tracked separately in issue #70 and is not satisfied by self-authored CI. OpenSSF Best Practices enrollment/application remains an external maintainer action and must not be represented as complete until the project has a real application record.
+
 Release gates:
 
 - dependency, secret, SAST, container, and license scanning in CI
