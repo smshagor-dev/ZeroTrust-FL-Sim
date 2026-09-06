@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "approved_licenses": [
+    "Apache-2.0",
+    "Apache-2.0 OR BSD-3-Clause",
+    "BSD-3-Clause",
+    "MIT",
+    "PSF-2.0"
+  ],
+  "python": {
+    "torch": "BSD-3-Clause",
+    "torchvision": "BSD-3-Clause",
+    "numpy": "BSD-3-Clause",
+    "grpcio": "Apache-2.0",
+    "grpcio-tools": "Apache-2.0",
+    "protobuf": "BSD-3-Clause",
+    "pyyaml": "MIT",
+    "pydantic": "MIT",
+    "cryptography": "Apache-2.0 OR BSD-3-Clause",
+    "psutil": "BSD-3-Clause",
+    "matplotlib": "PSF-2.0",
+    "opentelemetry-api": "Apache-2.0",
+    "opentelemetry-sdk": "Apache-2.0",
+    "opentelemetry-exporter-otlp-proto-grpc": "Apache-2.0",
+    "opentelemetry-instrumentation-grpc": "Apache-2.0",
+    "prometheus-client": "Apache-2.0",
+    "pybind11": "BSD-3-Clause",
+    "cmake": "BSD-3-Clause",
+    "pytest": "MIT",
+    "pytest-asyncio": "Apache-2.0",
+    "pytest-cov": "MIT",
+    "ruff": "MIT",
+    "mypy": "MIT"
+  },
+  "npm": {
+    "next": "MIT",
+    "react": "MIT",
+    "react-dom": "MIT"
+  }
+}
