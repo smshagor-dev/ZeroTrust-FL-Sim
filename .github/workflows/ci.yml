@@ -33,6 +33,14 @@ jobs:
         run: make proto
       - name: Hydrate Go module checksums
         run: go mod tidy
+      - name: Check protobuf backward compatibility
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          bash scripts/check_proto_compat.sh FETCH_HEAD
       - name: Format Go
         run: |
           go fmt ./...
