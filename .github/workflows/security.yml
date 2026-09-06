@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   source-and-dependencies:
-    name: Source, dependency, license, and secret gates
+    name: Source, dependency, license, workflow, and secret gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -34,6 +34,18 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Generate Go protobuf code
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          make proto
+          go mod tidy
+      - name: Validate GitHub Actions workflows
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          actionlint
       - name: Enforce reviewed direct-dependency licenses
         run: python scripts/check_runtime_licenses.py
       - name: Audit Python dependencies
@@ -68,12 +80,18 @@ jobs:
         with:
           go-version: '1.27.1'
           cache: false
-      - name: Fuzz Go NumPy model decoder
-        run: go test ./pkg/coordinator -run=^$ -fuzz=FuzzDecodeNPYFloat32 -fuzztime=20s
-      - name: Install native fuzz compiler
+      - name: Install protobuf compiler and native fuzz compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang
+          sudo apt-get install -y protobuf-compiler clang
+      - name: Generate Go protobuf code
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          make proto
+          go mod tidy
+      - name: Fuzz Go NumPy model decoder
+        run: go test ./pkg/coordinator -run=^$ -fuzz=FuzzDecodeNPYFloat32 -fuzztime=20s
       - name: Build native Byzantine fuzz target with sanitizers
         run: |
           clang++ \
