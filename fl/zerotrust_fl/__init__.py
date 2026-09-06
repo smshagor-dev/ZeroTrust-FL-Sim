@@ -1,3 +1,28 @@
-"""Federated learning runtime for ZeroTrust-FL-Sim."""
+"""Stable public Python surface for ZeroTrust-FL-Sim."""
 
-__version__ = "0.3.0"
+from .sdk import (
+    SDK_API_VERSION,
+    Enrollment,
+    HeartbeatStatus,
+    ModelSnapshot,
+    TensorManifest,
+    UpdateMetrics,
+    UpdateSubmission,
+    WorkerClient,
+    WorkerConfig,
+)
+
+__version__ = "0.7.0"
+
+__all__ = [
+    "SDK_API_VERSION",
+    "Enrollment",
+    "HeartbeatStatus",
+    "ModelSnapshot",
+    "TensorManifest",
+    "UpdateMetrics",
+    "UpdateSubmission",
+    "WorkerClient",
+    "WorkerConfig",
+    "__version__",
+]
