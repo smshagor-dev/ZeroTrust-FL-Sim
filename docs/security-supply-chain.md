@@ -10,8 +10,10 @@ The workflow fails closed on:
 
 - unreviewed direct Python or dashboard runtime dependencies;
 - direct dependencies assigned to license expressions outside `security/runtime-license-policy.json`;
+- invalid GitHub Actions workflow syntax or expressions reported by Actionlint;
 - Python dependencies reported vulnerable by `pip-audit`;
 - reachable Go vulnerabilities reported by `govulncheck`;
+- high-severity/high-confidence Go security findings reported by Gosec;
 - dashboard runtime dependency vulnerabilities at npm audit level `high` or above;
 - high-severity/high-confidence Python Bandit findings;
 - detected repository secrets through Gitleaks;
@@ -23,14 +25,18 @@ The direct-dependency license policy is intentionally explicit. A dependency add
 
 ## Release evidence
 
-Tag-triggered image publishing produces an immutable digest for each supported image and then requires all of the following in the same release workflow:
+Tag-triggered publishing creates a deterministic source archive and an immutable digest for each supported OCI image. The release workflow requires all of the following:
 
-- SPDX JSON SBOM generated from the immutable image digest;
-- keyless Sigstore/Cosign signature on the immutable digest;
-- SBOM attestation attached to that digest;
-- GitHub build-provenance attestation pushed to the registry;
-- SHA-256 checksums for the release evidence files;
-- retained workflow artifact containing image metadata, digests, SBOMs, and checksums.
+- source archive generated from the exact tagged commit with `git archive`;
+- SPDX JSON SBOM for the source tree;
+- keyless Sigstore/Cosign signature bundle for the source archive;
+- GitHub build-provenance attestation for the source archive;
+- SPDX JSON SBOM generated from each immutable OCI image digest;
+- keyless Sigstore/Cosign signature on each immutable image digest;
+- SBOM attestation attached to each image digest;
+- GitHub build-provenance attestation pushed to the registry for each image;
+- SHA-256 checksums for the retained release evidence files;
+- retained workflow artifact containing source/image metadata, digests, SBOMs, signature evidence, and checksums.
 
 A mutable tag alone is never the deployment identity. Production Helm values must continue to consume image digests.
 
@@ -49,13 +55,13 @@ The following mapping uses the NIST Secure Software Development Framework practi
 | PO.1 / PO.2 Prepare the organization | `SECURITY.md`, contribution/governance files, roadmap release gates, explicit security issues |
 | PO.3 Implement supporting toolchains | pinned GitHub Actions, CI, dependency/SAST/secret/container scans, fuzzing, release attestations |
 | PS.1 Protect code from unauthorized access/tampering | GitHub repository permissions, immutable release digests, signed images; required branch protection remains separately tracked until enabled |
-| PS.2 Provide mechanisms to verify release integrity | Cosign signatures, SBOM attestations, provenance attestations, SHA-256 evidence checksums |
+| PS.2 Provide mechanisms to verify release integrity | source/image Cosign signatures, SBOM attestations, provenance attestations, SHA-256 evidence checksums |
 | PW.4 Reuse well-secured software | Python/Go/npm vulnerability audits, explicit direct-license policy, Dependabot |
 | PW.5 Create source code using secure coding practices | fail-closed validation, mTLS/RBAC/replay controls, code review through pull requests, linters and tests |
-| PW.7 Review/analyze human-readable code | Go vet/tests, Ruff, Bandit, protocol compatibility checks, Python/native tests |
+| PW.7 Review/analyze human-readable code | Go vet/tests, Gosec, Ruff, Bandit, protocol compatibility checks, Python/native tests |
 | PW.8 Test executable code | Docker integration, durable recovery tests, native sanitizer fuzzing, model-parser fuzzing, benchmark smoke |
 | PW.9 Configure software securely by default | non-root/read-only Kubernetes workloads, dropped capabilities, NetworkPolicies, digest-only production images, external secret requirements |
-| RV.1 Identify and confirm vulnerabilities | private vulnerability reporting policy, pip-audit, govulncheck, npm audit, Trivy, Gitleaks, Scorecard |
+| RV.1 Identify and confirm vulnerabilities | private vulnerability reporting policy, pip-audit, govulncheck, npm audit, Gosec, Bandit, Trivy, Gitleaks, Scorecard |
 | RV.2 Assess/remediate vulnerabilities | severity-gated CI, dependency updates, issue/PR remediation workflow |
 | RV.3 Analyze vulnerabilities for root cause | security findings are expected to record affected commit, path, threat model, remediation, and regression coverage |
 
