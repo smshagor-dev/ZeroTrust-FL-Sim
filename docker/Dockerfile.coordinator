@@ -1,10 +1,21 @@
 FROM golang:1.27-alpine AS builder
 
+RUN apk add --no-cache protobuf
 WORKDIR /src
-COPY go.mod go.sum ./
+
+COPY go.mod ./
 RUN go mod download
+
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2 \
+    && protoc \
+        --go_out=. --go_opt=module=github.com/smshagor-dev/ZeroTrust-FL-Sim \
+        --go-grpc_out=. --go-grpc_opt=module=github.com/smshagor-dev/ZeroTrust-FL-Sim \
+        proto/fl_service.proto \
+    && go mod tidy \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/certgen ./security
 
 FROM golang:1.27-alpine AS health-probe-builder
 ARG GRPC_HEALTH_PROBE_COMMIT=82e04432a7344c01c56406a6ddf5c8b6841d5a65
@@ -16,13 +27,15 @@ RUN apk upgrade --no-cache \
     && apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 ztfl \
     && adduser -S -D -H -u 10001 -G ztfl ztfl \
-    && mkdir -p /app/data \
-    && chown -R 10001:10001 /app
+    && mkdir -p /var/lib/zerotrust-fl \
+    && chown -R 10001:10001 /var/lib/zerotrust-fl
 
-WORKDIR /app
-COPY --from=builder --chown=10001:10001 /out/coordinator /app/coordinator
+COPY --from=builder /out/coordinator /usr/local/bin/coordinator
+COPY --from=builder /out/certgen /usr/local/bin/certgen
 COPY --from=health-probe-builder /go/bin/grpc-health-probe /usr/local/bin/grpc_health_probe
+COPY docker/generate-dev-pki.sh /usr/local/bin/generate-dev-pki.sh
+RUN chmod 0555 /usr/local/bin/generate-dev-pki.sh
 
 USER 10001:10001
-EXPOSE 50051 9090
-ENTRYPOINT ["/app/coordinator"]
+EXPOSE 50051
+ENTRYPOINT ["/usr/local/bin/coordinator"]
