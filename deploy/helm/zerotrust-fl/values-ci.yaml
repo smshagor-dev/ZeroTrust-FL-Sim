@@ -1,0 +1,43 @@
+global:
+  modelId: ci-model
+  experimentId: ci
+  trustDomain: zerotrust-fl.local
+
+coordinator:
+  image:
+    repository: ghcr.io/example/zerotrust-fl-sim-coordinator
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  pkiSecretName: ci-coordinator-pki
+  runtimeSecretName: ci-coordinator-runtime
+  service:
+    port: 50051
+    metricsPort: 9464
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+workers:
+  - name: worker-01
+    image:
+      repository: ghcr.io/example/zerotrust-fl-sim-worker
+      digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    secretName: ci-worker-01-pki
+    attack: none
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
+networkPolicy:
+  enabled: true
+  externalEgressPorts:
+    - 443
+    - 5432
+    - 9000
