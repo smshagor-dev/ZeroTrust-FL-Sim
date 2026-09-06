@@ -30,8 +30,8 @@ using DistanceFn = double (*)(const float*, const float*, std::size_t) noexcept;
 
 #if (defined(__GNUC__) || defined(__clang__)) && \
     (defined(__x86_64__) || defined(__i386__))
-__attribute__((target("avx512f,avx,fma")))
-[[nodiscard]] double squared_distance_avx512(
+[[nodiscard]] __attribute__((target("avx512f,avx,fma")))
+double squared_distance_avx512(
     const float* lhs,
     const float* rhs,
     std::size_t size
