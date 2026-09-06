@@ -29,13 +29,15 @@ spec:
         - protocol: TCP
           port: 50051
     - from:
-        - namespaceSelector: {}
+        - podSelector: {}
       ports:
         - protocol: TCP
           port: 9464
   egress:
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
       ports:
         - protocol: UDP
           port: 53
@@ -67,7 +69,9 @@ spec:
         - protocol: TCP
           port: 50051
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
       ports:
         - protocol: UDP
           port: 53
