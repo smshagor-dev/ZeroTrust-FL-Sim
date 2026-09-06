@@ -122,7 +122,7 @@ jobs:
             fi
             ref="${image}@${digest}"
             cosign sign --yes "$ref"
-            cosign attest --yes --type spdxjson --predicate "release-metadata/${component}.spdx.json" "$ref"
+            cosign attest --yes --type https://spdx.dev/Document --predicate "release-metadata/${component}.spdx.json" "$ref"
           done
 
       - name: Attest coordinator build provenance
