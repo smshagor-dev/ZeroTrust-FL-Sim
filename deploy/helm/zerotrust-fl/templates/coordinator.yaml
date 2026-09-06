@@ -1,0 +1,125 @@
+{{- $digest := required "coordinator.image.digest is required; deploy immutable image digests" .Values.coordinator.image.digest -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zerotrust-fl.fullname" . }}-coordinator
+  labels:
+    {{- include "zerotrust-fl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: coordinator
+  template:
+    metadata:
+      labels:
+        {{- include "zerotrust-fl.labels" . | nindent 8 }}
+        app.kubernetes.io/component: coordinator
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: coordinator
+          image: "{{ .Values.coordinator.image.repository }}@{{ $digest }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 50051
+            - name: metrics
+              containerPort: 9464
+          envFrom:
+            - secretRef:
+                name: {{ .Values.coordinator.runtimeSecretName | quote }}
+          env:
+            - name: ZTFL_LISTEN_ADDRESS
+              value: ":50051"
+            - name: ZTFL_METRICS_ADDRESS
+              value: ":9464"
+            - name: ZTFL_MODEL_ID
+              value: {{ .Values.global.modelId | quote }}
+            - name: ZTFL_EXPERIMENT_ID
+              value: {{ .Values.global.experimentId | quote }}
+            - name: ZTFL_TRUST_DOMAIN
+              value: {{ .Values.global.trustDomain | quote }}
+            - name: ZTFL_SERVER_CERT
+              value: /run/ztfl/pki/server.crt
+            - name: ZTFL_SERVER_KEY
+              value: /run/ztfl/pki/server.key
+            - name: ZTFL_CLIENT_CA
+              value: /run/ztfl/pki/ca.crt
+            - name: ZTFL_JWT_PUBLIC_KEY
+              value: /run/ztfl/pki/jwt_signing_public.pem
+            - name: ZTFL_S3_ALLOW_INSECURE_HTTP
+              value: "false"
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.coordinator.resources | nindent 12 }}
+          volumeMounts:
+            - name: pki
+              mountPath: /run/ztfl/pki
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: pki
+          secret:
+            secretName: {{ .Values.coordinator.pkiSecretName | quote }}
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zerotrust-fl.fullname" . }}-coordinator
+  labels:
+    {{- include "zerotrust-fl.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: coordinator
+  ports:
+    - name: grpc
+      port: {{ .Values.coordinator.service.port }}
+      targetPort: grpc
+    - name: metrics
+      port: {{ .Values.coordinator.service.metricsPort }}
+      targetPort: metrics
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "zerotrust-fl.fullname" . }}-coordinator
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: coordinator

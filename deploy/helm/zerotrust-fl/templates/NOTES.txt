@@ -1,0 +1,3 @@
+ZeroTrust-FL-Sim was rendered with immutable image digests.
+
+Before installation, create the coordinator PKI secret, coordinator runtime secret, and one isolated PKI/JWT secret per worker. The chart deliberately does not generate production credentials.

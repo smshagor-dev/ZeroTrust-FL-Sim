@@ -1,0 +1,102 @@
+{{- $root := . -}}
+{{- range $index, $worker := .Values.workers }}
+{{- $digest := required (printf "workers[%d].image.digest is required; deploy immutable image digests" $index) $worker.image.digest -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zerotrust-fl.fullname" $root }}-{{ $worker.name | trunc 30 | trimSuffix "-" }}
+  labels:
+    {{- include "zerotrust-fl.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: worker
+    zerotrust-fl.io/worker: {{ $worker.name | quote }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: worker
+      zerotrust-fl.io/worker: {{ $worker.name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "zerotrust-fl.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: worker
+        zerotrust-fl.io/worker: {{ $worker.name | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: "{{ $worker.image.repository }}@{{ $digest }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ZTFL_COORDINATOR_ADDRESS
+              value: "{{ include "zerotrust-fl.fullname" $root }}-coordinator:{{ $root.Values.coordinator.service.port }}"
+            - name: ZTFL_SERVER_NAME
+              value: {{ include "zerotrust-fl.fullname" $root | printf "%s-coordinator" | quote }}
+            - name: ZTFL_NODE_ID
+              value: {{ $worker.name | quote }}
+            - name: ZTFL_MODEL_ID
+              value: {{ $root.Values.global.modelId | quote }}
+            - name: ZTFL_TRUST_DOMAIN
+              value: {{ $root.Values.global.trustDomain | quote }}
+            - name: ZTFL_CERT_DIR
+              value: /run/ztfl/pki
+            - name: ZTFL_ATTACK
+              value: {{ default "none" $worker.attack | quote }}
+            - name: ZTFL_HEALTH_FILE
+              value: /tmp/ztfl-worker.ready
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "test -s /tmp/ztfl-worker.ready"]
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "kill -0 1"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: pki
+              mountPath: /run/ztfl/pki
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: pki
+          secret:
+            secretName: {{ required (printf "workers[%d].secretName is required" $index) $worker.secretName | quote }}
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "zerotrust-fl.fullname" $root }}-{{ $worker.name | trunc 30 | trimSuffix "-" }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: worker
+      zerotrust-fl.io/worker: {{ $worker.name | quote }}
+---
+{{- end }}

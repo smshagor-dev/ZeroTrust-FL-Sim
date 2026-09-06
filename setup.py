@@ -62,7 +62,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="zerotrust-fl-sim",
-    version="0.4.0",
+    version="0.7.0",
     description="Zero-trust federated learning simulation runtime",
     author="Shahanur Islam Shagor",
     url="https://github.com/smshagor-dev/ZeroTrust-FL-Sim",
@@ -106,6 +106,7 @@ setup(
         "benchmark": ["cryptography>=45,<50", "matplotlib>=3.10,<4"],
         "tenseal": ["tenseal==0.3.17"],
     },
+    entry_points={"console_scripts": ["ztfl=zerotrust_fl.cli:main"]},
     ext_modules=[CMakeExtension("zerotrust_fl_cpp")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,

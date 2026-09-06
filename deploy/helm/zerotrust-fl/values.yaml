@@ -1,0 +1,43 @@
+global:
+  modelId: global-model
+  experimentId: production
+  trustDomain: zerotrust-fl.local
+
+coordinator:
+  image:
+    repository: ghcr.io/smshagor-dev/zerotrust-fl-sim-coordinator
+    digest: ""
+  pkiSecretName: ztfl-coordinator-pki
+  runtimeSecretName: ztfl-coordinator-runtime
+  service:
+    port: 50051
+    metricsPort: 9464
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+workers:
+  - name: worker-01
+    image:
+      repository: ghcr.io/smshagor-dev/zerotrust-fl-sim-worker
+      digest: ""
+    secretName: ztfl-worker-01-pki
+    attack: none
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
+networkPolicy:
+  enabled: true
+  externalEgressPorts:
+    - 443
+    - 5432
+    - 9000

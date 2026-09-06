@@ -41,7 +41,9 @@ Target reference stack: PostgreSQL for durable metadata and durable transition a
 
 ## v0.7 — Stable protocol and deployment surface
 
-Implementation status: issue #63 added the versioned v1 model envelope with explicit model identity, protocol version, canonical schema digest, tensor manifest, dtype/dimensions, payload digest validation, and Go/Python cross-language enforcement. Issue #65 adds an append-only protobuf evolution policy plus repository-owned descriptor compatibility checks in pull-request CI so established `zerotrust.fl.v1` messages, fields, enum values, and RPC signatures cannot be removed, renamed, renumbered, or retyped silently.
+Implementation status: issue #63 added the versioned v1 model envelope with explicit model identity, protocol version, canonical schema digest, tensor manifest, dtype/dimensions, payload digest validation, and Go/Python cross-language enforcement. Issue #65 added an append-only protobuf evolution policy plus repository-owned descriptor compatibility checks in pull-request CI so established `zerotrust.fl.v1` messages, fields, enum values, and RPC signatures cannot be removed, renamed, renumbered, or retyped silently. Issue #67 adds the stable SDK API v1 facade and operator CLI, immutable-digest OCI release workflow, production Helm chart with isolated workload credentials, restrictive security contexts, probes, resources, NetworkPolicies and PodDisruptionBudgets, plus multi-host deployment documentation and render validation.
+
+With issue #67, the documented v0.7 gates are implemented for the supported single-coordinator reference profile. Kubernetes deployment remains deliberately single-coordinator until a future consensus/HA design exists; workers are rendered as separate one-replica identities so private credentials are never shared across replicas.
 
 Release gates:
 

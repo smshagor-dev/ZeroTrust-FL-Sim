@@ -1,0 +1,62 @@
+name: Release OCI Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: Publish immutable OCI image digests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Authenticate to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Configure buildx
+        run: docker buildx create --name ztfl-release --use --driver docker-container
+      - name: Build and push release images
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-metadata
+          for component in coordinator worker recovery; do
+            image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/zerotrust-fl-sim-${component}"
+            docker buildx build \
+              --pull \
+              --platform linux/amd64 \
+              --file "docker/Dockerfile.${component}" \
+              --tag "${image}:${VERSION}" \
+              --push \
+              --metadata-file "release-metadata/${component}.json" \
+              .
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          owner = "${{ github.repository_owner }}".lower()
+          version = "${{ github.ref_name }}"
+          lines = []
+          for component in ("coordinator", "worker", "recovery"):
+              metadata = json.loads(Path(f"release-metadata/{component}.json").read_text())
+              digest = metadata.get("containerimage.digest")
+              if not isinstance(digest, str) or not digest.startswith("sha256:"):
+                  raise SystemExit(f"missing immutable digest for {component}")
+              lines.append(
+                  f"ghcr.io/{owner}/zerotrust-fl-sim-{component}:{version}@{digest}"
+              )
+          Path("release-metadata/image-digests.txt").write_text("\n".join(lines) + "\n")
+          PY
+      - name: Upload immutable image manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-digests-${{ github.ref_name }}
+          path: release-metadata/
+          if-no-files-found: error
+          retention-days: 90
