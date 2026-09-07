@@ -43,7 +43,7 @@ def resolve_commit_sha(explicit: str | None = None) -> str:
     )
     for candidate in candidates:
         if candidate:
-            normalized = candidate.strip().lower()
+            normalized = candidate.strip()
             if _COMMIT_SHA_RE.fullmatch(normalized):
                 return normalized
             raise ValueError("benchmark evidence requires a full 40-character lowercase Git SHA")
@@ -61,9 +61,9 @@ def resolve_commit_sha(explicit: str | None = None) -> str:
             "could not resolve benchmark commit SHA; pass --commit-sha or ZTFL_COMMIT_SHA"
         ) from exc
 
-    normalized = completed.stdout.strip().lower()
+    normalized = completed.stdout.strip()
     if not _COMMIT_SHA_RE.fullmatch(normalized):
-        raise RuntimeError("git rev-parse did not return a full 40-character commit SHA")
+        raise RuntimeError("git rev-parse did not return a full 40-character lowercase commit SHA")
     return normalized
 
 
