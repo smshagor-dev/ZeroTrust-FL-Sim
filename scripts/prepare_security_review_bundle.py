@@ -148,11 +148,34 @@ def _write_deterministic_archive(output_dir: Path, archive_path: Path) -> None:
                     archive.addfile(info, io.BytesIO(data))
 
 
+def _archive_has_bundle_marker(archive_path: Path) -> bool:
+    try:
+        with tarfile.open(archive_path, mode="r:gz") as archive:
+            member = archive.getmember(BUNDLE_MARKER)
+            stream = archive.extractfile(member)
+            if stream is None:
+                return False
+            expected = f"schema_version={BUNDLE_SCHEMA_VERSION}\n".encode()
+            return stream.read() == expected
+    except (OSError, KeyError, tarfile.TarError):
+        return False
+
+
 def _prepare_output_directory(root: Path, output_dir: Path, archive_path: Path, force: bool) -> None:
     if output_dir == root or output_dir in root.parents:
         raise ReviewBundleError("output directory must not be the repository root or its ancestor")
     if archive_path == output_dir or output_dir in archive_path.parents:
         raise ReviewBundleError("archive path must be outside the review bundle directory")
+
+    if archive_path.exists():
+        if archive_path.is_dir():
+            raise ReviewBundleError(f"archive path is a directory: {archive_path}")
+        if not force:
+            raise ReviewBundleError(f"archive already exists: {archive_path}")
+        if not _archive_has_bundle_marker(archive_path):
+            raise ReviewBundleError(
+                "refusing to replace an archive that is not a prior review bundle"
+            )
 
     if output_dir.exists():
         if not force:
@@ -203,7 +226,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="replace only a directory previously created by this bundle generator",
+        help="replace only outputs previously created by this bundle generator",
     )
     return parser.parse_args()
 
