@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     zerotrust_fl_cpp
-    VERSION 0.9.0
+    VERSION 1.0.0
     LANGUAGES CXX
 )
 
