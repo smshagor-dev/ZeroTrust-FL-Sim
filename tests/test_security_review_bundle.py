@@ -125,6 +125,23 @@ def test_force_replaces_only_previous_bundle_output(tmp_path: Path) -> None:
     assert baseline["reviewed_commit"] == "e" * 40
 
 
+def test_force_refuses_to_overwrite_unrelated_archive(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _seed_review_root(root)
+    archive = tmp_path / "evidence.tar.gz"
+    archive.write_bytes(b"not a generated review bundle")
+
+    with pytest.raises(ReviewBundleError, match="not a prior review bundle"):
+        build_review_bundle(
+            root,
+            tmp_path / "bundle",
+            archive,
+            commit="e" * 40,
+            force=True,
+        )
+    assert archive.read_bytes() == b"not a generated review bundle"
+
+
 def test_archive_must_be_outside_bundle_directory(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     _seed_review_root(root)
