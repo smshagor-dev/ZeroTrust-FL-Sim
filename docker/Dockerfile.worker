@@ -30,7 +30,11 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install grpcio-tools==1.83.1 \
     && python -m pip install 'torch==2.14.0+cpu' --index-url https://download.pytorch.org/whl/cpu \
     && python scripts/generate_python_proto.py \
-    && ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CKKS=ON python -m pip install ".[benchmark]"
+    && ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CKKS=ON python -m pip install ".[benchmark]" \
+    && python -m pip check \
+    && python -m pip uninstall -y grpcio-tools wheel \
+    && python -m pip uninstall -y pip \
+    && test ! -e "$VIRTUAL_ENV/lib/python3.12/site-packages/pip/_vendor/bom.cdx.json"
 
 FROM ubuntu:24.04 AS runtime
 
@@ -49,7 +53,7 @@ RUN apt-get update \
         ca-certificates \
         libgomp1 \
         libstdc++6 \
-        python3.12-minimal \
+        python3.12 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 ztfl \
     && useradd --uid 10001 --gid ztfl --no-create-home --shell /usr/sbin/nologin ztfl
