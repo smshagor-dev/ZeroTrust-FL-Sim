@@ -7,7 +7,6 @@ import torch
 from torch import nn
 from torch.nn.utils import parameters_to_vector
 from torch.utils.data import TensorDataset
-
 from zerotrust_fl.engine import (
     AggregationConfig,
     AsyncFederatedCoordinator,
