@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Capture CUDA aggregation parity evidence on a real CUDA-capable runner."""
 
 from __future__ import annotations
@@ -16,15 +15,16 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from benchmarks.reproducibility import resolve_commit_sha  # noqa: E402
-from zerotrust_fl.aggregators.native_cpp import (  # noqa: E402
+from zerotrust_fl.aggregators.native_cpp import (
     CudaByzantineAggregator,
     cuda_extension_available,
 )
-from zerotrust_fl.engine.coordinator import (  # noqa: E402
+from zerotrust_fl.engine.coordinator import (
     AggregationConfig,
     _torch_aggregate,
 )
+
+from benchmarks.reproducibility import resolve_commit_sha
 
 
 EVIDENCE_SCHEMA_VERSION = 1
