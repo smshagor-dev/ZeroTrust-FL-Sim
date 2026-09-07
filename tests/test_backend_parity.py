@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import pytest
 import torch
-
-pytest.importorskip("zerotrust_fl_cpp")
-
 from zerotrust_fl.aggregators.native_cpp import CppByzantineAggregator
 from zerotrust_fl.engine.coordinator import AggregationConfig, _torch_aggregate
+
+pytest.importorskip("zerotrust_fl_cpp")
 
 
 PARITY_RTOL = 2e-4
