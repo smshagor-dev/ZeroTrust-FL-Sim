@@ -55,7 +55,7 @@ python scripts/prepare_security_review_bundle.py \
   --archive /tmp/ztfl-review-bundle.tar.gz
 ```
 
-For a detached checkout or a separately agreed review baseline, pass the full reviewed SHA explicitly with `--commit <40-character-sha>`.
+For an agreed review baseline, check out that exact commit first. `--commit <40-character-sha>` is an optional assertion and must exactly match the checked-out `git HEAD`; it cannot relabel a different tree. The generator also refuses to run when tracked files are modified, so the bundle cannot claim a clean commit while packaging local tracked changes.
 
 The generated bundle contains:
 
@@ -65,7 +65,7 @@ The generated bundle contains:
 - `SHA256SUMS` covering every evidence file in the bundle;
 - a deterministic `.tar.gz` archive with normalized archive metadata.
 
-The bundle generator fails closed when required evidence is missing or the supplied commit is not a canonical full SHA. Re-running it from the same source tree and commit produces byte-identical archive content.
+The bundle generator fails closed when required evidence is missing, the checkout is not clean for tracked files, the supplied commit does not exactly match `git HEAD`, or an unsafe output path would overwrite unrelated content. Re-running it from the same source tree and commit produces byte-identical archive content.
 
 The archive is only a repository-authored handoff mechanism. It does not establish reviewer independence, validate findings, close issue #70, or replace a final externally authored report/reference.
 
