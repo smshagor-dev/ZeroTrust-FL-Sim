@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	legacyCoordinatorStateSchemaVersion = 1
-	coordinatorStateSchemaVersion       = 2
-	maxCoordinatorStateBytes            = 256 << 20
+	legacyCoordinatorStateSchemaVersion   = 1
+	previousCoordinatorStateSchemaVersion = 2
+	coordinatorStateSchemaVersion         = 3
+	maxCoordinatorStateBytes              = 256 << 20
 )
 
 var ErrStateNotFound = errors.New("coordinator state not found")
@@ -36,6 +37,7 @@ type StatePolicy struct {
 	MinUpdates          int                `json:"min_updates"`
 	MaxUpdatesPerMinute int                `json:"max_updates_per_minute"`
 	AggregationMethod   string             `json:"aggregation_method"`
+	ModelID             string             `json:"model_id"`
 	Experiment          ExperimentMetadata `json:"experiment"`
 }
 
@@ -149,7 +151,9 @@ func (s *FileStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	if err := ensureJSONEOF(decoder); err != nil {
 		return StateSnapshot{}, err
 	}
-	if encoded.SchemaVersion != legacyCoordinatorStateSchemaVersion && encoded.SchemaVersion != coordinatorStateSchemaVersion {
+	if encoded.SchemaVersion != legacyCoordinatorStateSchemaVersion &&
+		encoded.SchemaVersion != previousCoordinatorStateSchemaVersion &&
+		encoded.SchemaVersion != coordinatorStateSchemaVersion {
 		return StateSnapshot{}, fmt.Errorf("unsupported coordinator state schema version %d", encoded.SchemaVersion)
 	}
 	if len(encoded.ModelProto) == 0 {
@@ -301,10 +305,21 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 func validateStateSnapshotForSchema(snapshot StateSnapshot, schemaVersion int) error {
 	switch schemaVersion {
 	case coordinatorStateSchemaVersion:
+		if snapshot.Policy.ModelID == "" {
+			return errors.New("state policy model_id is required in schema v3")
+		}
+		return validateStateSnapshot(snapshot)
+	case previousCoordinatorStateSchemaVersion:
+		if snapshot.Policy.ModelID == "" {
+			snapshot.Policy.ModelID = legacyModelIDValidationPlaceholder()
+		}
 		return validateStateSnapshot(snapshot)
 	case legacyCoordinatorStateSchemaVersion:
 		if experimentMetadataMissing(snapshot.Policy.Experiment) {
 			snapshot.Policy.Experiment = legacyExperimentValidationPlaceholder()
+		}
+		if snapshot.Policy.ModelID == "" {
+			snapshot.Policy.ModelID = legacyModelIDValidationPlaceholder()
 		}
 		return validateStateSnapshot(snapshot)
 	default:
@@ -331,6 +346,9 @@ func validateStateSnapshot(snapshot StateSnapshot) error {
 	}
 	if snapshot.Policy.AggregationMethod != normalizedAggregation {
 		return fmt.Errorf("state policy aggregation_method must use canonical value %q", normalizedAggregation)
+	}
+	if err := validatePersistedModelID(snapshot.Policy.ModelID); err != nil {
+		return fmt.Errorf("validate model identity: %w", err)
 	}
 	if err := validateExperimentMetadata(snapshot.Policy.Experiment); err != nil {
 		return fmt.Errorf("validate experiment metadata: %w", err)
@@ -391,7 +409,7 @@ func validateStateSnapshot(snapshot StateSnapshot) error {
 			if math.IsNaN(converted) || math.IsInf(converted, 0) {
 				return fmt.Errorf("pending update for %q contains non-finite values", update.NodeID)
 			}
-		}
+	}
 	}
 
 	seenRegistrations := make(map[string]struct{}, len(snapshot.Registrations))
