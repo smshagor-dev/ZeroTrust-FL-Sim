@@ -154,7 +154,7 @@ func TestDurableServiceInitializesMissingState(t *testing.T) {
 	if loaded.Model.GetModelVersion() != "bootstrap" || loaded.Model.GetRoundId() != 0 {
 		t.Fatalf("initialized model = %q round %d", loaded.Model.GetModelVersion(), loaded.Model.GetRoundId())
 	}
-	if loaded.Policy.MinUpdates != 1 || loaded.Policy.AggregationMethod != "median" {
+	if loaded.Policy.MinUpdates != 1 || loaded.Policy.AggregationMethod != "median" || loaded.Policy.ModelID != DefaultModelID {
 		t.Fatalf("initialized policy = %#v", loaded.Policy)
 	}
 	if loaded.Policy.Experiment.ID != defaultExperimentID || loaded.Policy.Experiment.ConfigSHA256 == "" || loaded.Policy.Experiment.CreatedAt.IsZero() {
@@ -239,6 +239,7 @@ func TestDurableServiceUpgradesLegacyV1ExperimentIdentity(t *testing.T) {
 	}
 	snapshot := testStateSnapshot(t)
 	snapshot.Policy.Experiment = ExperimentMetadata{}
+	snapshot.Policy.ModelID = ""
 	modelBytes, err := proto.Marshal(snapshot.Model)
 	if err != nil {
 		t.Fatalf("marshal legacy model: %v", err)
@@ -264,7 +265,7 @@ func TestDurableServiceUpgradesLegacyV1ExperimentIdentity(t *testing.T) {
 		ID:           "adopted-v1-experiment",
 		ConfigSHA256: "3333333333333333333333333333333333333333333333333333333333333333",
 	}
-	if _, err := NewDurableServiceWithExperiment(ztsecurity.NewRegistrationStore(), Config{MinUpdates: 2}, store, experimentConfig); err != nil {
+	if _, err := NewDurableServiceWithIdentity(ztsecurity.NewRegistrationStore(), Config{MinUpdates: 2}, store, experimentConfig, "adopted-model"); err != nil {
 		t.Fatalf("upgrade legacy state: %v", err)
 	}
 	upgradedData, err := os.ReadFile(path)
@@ -280,6 +281,9 @@ func TestDurableServiceUpgradesLegacyV1ExperimentIdentity(t *testing.T) {
 	}
 	if upgraded.Policy.Experiment.ID != experimentConfig.ID || upgraded.Policy.Experiment.ConfigSHA256 != experimentConfig.ConfigSHA256 {
 		t.Fatalf("upgraded experiment metadata = %#v", upgraded.Policy.Experiment)
+	}
+	if upgraded.Policy.ModelID != "adopted-model" {
+		t.Fatalf("upgraded model id = %q, want adopted-model", upgraded.Policy.ModelID)
 	}
 }
 
@@ -297,6 +301,7 @@ func testStateSnapshot(t *testing.T) StateSnapshot {
 		MinUpdates:          2,
 		MaxUpdatesPerMinute: defaultMaxUpdatesPerMinute,
 		AggregationMethod:   "median",
+		ModelID:             DefaultModelID,
 	}
 	experiment, err := newExperimentMetadata(ExperimentConfig{}, policy, now)
 	if err != nil {

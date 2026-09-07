@@ -23,13 +23,19 @@ The format is based on Keep a Changelog, and the project intends to use semantic
 - Fail-closed dependency, SAST, secret, license, container, fuzzing, SBOM, signing, and provenance gates for the supported release profile.
 - v0.9 release-contract tests that freeze the documented public Python SDK surface and fail CI when Python, CMake, Helm, or citation version metadata drifts.
 - v0.9 correctness regression coverage for fail-closed buffer-bearing models and Krum/Multi-Krum Byzantine population bounds.
+- CPU/PyTorch/native aggregation parity tests and a separate real-device CUDA evidence collector that refuses CPU-only validation.
+- Commit-bound reproducibility manifests for release benchmark runs, including research configuration digests and runtime facts.
+- Real ephemeral Kind/Kubernetes supported-profile evidence with immutable image digests, CI-only PKI, authenticated worker model advancement, worker loss/recovery, and coordinator restart verification.
+- Operator objectives, recovery runbooks, and a release-readiness evidence map linking claims to executable tests and workflows.
 
 ### Changed
 
 - Package, runtime, CMake, Helm, and citation metadata are aligned at `0.9.0` while v1.0 external production gates remain in progress.
-- Coordinator durable state snapshots now use schema v2; legacy schema-v1 state can be normalized once by the coordinator using the explicitly configured runtime experiment identity.
-- Recovery bundle manifests now use schema v2 and bind restored state to the persisted experiment identity/configuration fingerprint.
+- Coordinator durable state snapshots now use schema v3 and independently persist `model_id`; schema-v1/v2 state can adopt the explicitly configured runtime model identity once and is then normalized to v3.
+- Schema-v3 durable restart now fails closed on missing or changed model identity before state is advanced or normalized.
+- Recovery bundle manifests use schema v2 and bind restored state to the persisted experiment identity/configuration fingerprint.
 - The v0.9 release-candidate contract explicitly separates CPU/native CI evidence from CUDA hardware validation and limits privacy/encryption claims to implemented paths.
+- Benchmark smoke evidence now emits and verifies an exact-commit reproducibility manifest instead of relying on benchmark outputs alone.
 
 ## Version History
 

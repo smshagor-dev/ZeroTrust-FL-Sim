@@ -129,7 +129,9 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	if err != nil {
 		return StateSnapshot{}, fmt.Errorf("load PostgreSQL coordinator state: %w", err)
 	}
-	if stateSchemaVersion != legacyCoordinatorStateSchemaVersion && stateSchemaVersion != coordinatorStateSchemaVersion {
+	if stateSchemaVersion != legacyCoordinatorStateSchemaVersion &&
+		stateSchemaVersion != previousCoordinatorStateSchemaVersion &&
+		stateSchemaVersion != coordinatorStateSchemaVersion {
 		return StateSnapshot{}, fmt.Errorf("unsupported coordinator state schema version %d", stateSchemaVersion)
 	}
 	if len(modelBytes) == 0 {

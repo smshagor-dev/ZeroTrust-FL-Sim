@@ -31,7 +31,7 @@ func (s *failOnceStateStore) Commit(_ context.Context, snapshot StateSnapshot) e
 
 func newRollbackTestDurableService(t *testing.T, service *Service, store StateStore) *DurableService {
 	t.Helper()
-	durable := &DurableService{service: service, store: store}
+	durable := &DurableService{service: service, store: store, modelID: DefaultModelID}
 	experiment, err := newExperimentMetadata(ExperimentConfig{}, durable.basePolicy(), time.Now())
 	if err != nil {
 		t.Fatalf("initialize rollback test experiment metadata: %v", err)
