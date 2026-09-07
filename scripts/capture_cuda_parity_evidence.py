@@ -23,8 +23,8 @@ from zerotrust_fl.engine.coordinator import (
     AggregationConfig,
     _torch_aggregate,
 )
-from benchmarks.reproducibility import resolve_commit_sha
 
+from benchmarks.reproducibility import resolve_commit_sha
 
 EVIDENCE_SCHEMA_VERSION = 1
 PARITY_RTOL = 2e-4
