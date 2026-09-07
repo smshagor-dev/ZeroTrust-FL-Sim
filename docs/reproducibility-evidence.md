@@ -55,7 +55,9 @@ The presence of CUDA libraries in a Python wheel, CUDA toolkit metadata, or a co
 
 The configuration digest intentionally excludes the timestamp and runtime facts. This allows two executions on different machines to prove that they used the same research configuration while still preserving their distinct hardware/runtime evidence.
 
-Example:
+`benchmarks/run_release_benchmark.py` is the release-evidence entrypoint. It runs the benchmark suite and writes `benchmark-manifest.json` into the same output directory. The release workflow refuses ambiguous/short commit identities and verifies the resulting canonical configuration digest before accepting the artifact.
+
+Standalone manifest example:
 
 ```bash
 python benchmarks/reproducibility.py \
@@ -73,22 +75,34 @@ python benchmarks/reproducibility.py \
 
 Short, non-hex, or otherwise ambiguous commit identifiers are rejected. The benchmark manifest explicitly states that it does not contain CUDA parity evidence; CUDA certification requires the separate real-device artifact above.
 
-## Durable upgrade evidence
+## Durable upgrade and model identity evidence
 
-The v0.9 release regression pins the currently supported filesystem state upgrade window and the embedded PostgreSQL migration chain. Filesystem schema v1 remains the explicit legacy input and schema v2 is the current persisted form. Existing recovery tests verify that a v1 state without experiment identity is adopted exactly once under the configured runtime experiment and normalized to v2. Unsupported future schema versions fail closed.
+The v0.9 release regression now pins a three-version filesystem/PostgreSQL state upgrade window:
 
-The PostgreSQL release contract pins these migrations in contiguous order:
+- schema v1 predates explicit experiment identity and durable model identity;
+- schema v2 persists experiment identity but predates independent durable `model_id`;
+- schema v3 is the current form and requires canonical `policy.model_id`.
+
+A v1/v2 state may adopt the configured runtime model ID exactly once during recovery and is immediately normalized to schema v3. Once schema v3 is persisted, changing only `ZTFL_MODEL_ID` causes fail-closed startup before the durable state is mutated. A schema-v3 record with a missing/invalid model ID is treated as corrupt rather than silently repaired.
+
+Filesystem and PostgreSQL regression tests cover the v2 adoption path, same-model restart, model-ID drift rejection, and current-schema missing-identity rejection. The existing v1 regression additionally proves experiment identity and model identity can be adopted together during the supported legacy migration.
+
+The PostgreSQL release contract pins these database migrations in contiguous order:
 
 - `001_coordinator_state.sql`;
 - `002_model_artifact_reference.sql`;
 - `003_audit_events.sql`.
 
-The migration executor also rejects database ledger versions unknown to the binary and rejects a migration-name mismatch for an already-applied version. Release changes must add a new migration; they must not silently rename, delete, or repurpose an applied migration.
+The durable state schema version is stored in the singleton state row and is independent of the database migration ledger. The migration executor rejects database ledger versions unknown to the binary and rejects a migration-name mismatch for an already-applied version. Release changes must add a new database migration when the SQL schema changes; they must not silently rename, delete, or repurpose an applied migration.
 
 ## Protocol compatibility evidence
 
 `internal/protocompat` remains the protocol compatibility gate. Its tests permit additive fields/messages/enum values/RPCs and reject package changes, message or field removal, field renumbering/renaming/type/cardinality changes, enum removal/renumbering, RPC removal/signature changes, and streaming-mode changes. CI compares the generated descriptor against the repository baseline.
 
-## Known boundary: durable model identity
+## Kubernetes supported-profile evidence
 
-The v1 network model envelope enforces `model_id` at the transport/runtime boundary. The durable `StatePolicy` does not yet persist `model_id` as an independent restart identity. Therefore v0.9 must not claim that changing only `ZTFL_MODEL_ID` across a durable restart is separately detected by the state store. Closing that boundary requires an explicit durable-state schema/configuration change and migration, not a documentation assertion.
+The `Release Evidence` workflow creates a real ephemeral Kind cluster, pushes the production coordinator and worker images through an isolated local registry, resolves immutable image digests, generates CI-only PKI, installs the Helm chart, and waits for both deployments to become Ready.
+
+The worker must complete an authenticated model update and advance the persisted model beyond bootstrap. The workflow then removes the worker, restarts the coordinator container, verifies schema-v3 model identity and durable state preservation, restores the worker, and produces the benchmark manifest from the same immutable worker image.
+
+This is evidence for the supported CI profile, not a claim of validation across every Kubernetes distribution, CNI, storage backend, cloud provider, or GPU runtime.
