@@ -13,7 +13,6 @@ from benchmarks.reproducibility import (
     write_manifest,
 )
 
-
 COMMIT = "a" * 40
 
 
