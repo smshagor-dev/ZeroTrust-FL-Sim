@@ -165,6 +165,12 @@ if ! kubectl -n "$NAMESPACE" logs deployment/"$WORKER_DEPLOYMENT" --all-containe
   exit 1
 fi
 
+# Quiesce the writer before taking the durable-state baseline. Capturing the
+# file while the worker remains live races a legitimate subsequent update and
+# can make model_proto differ even when coordinator restart recovery is exact.
+kubectl -n "$NAMESPACE" scale deployment/"$WORKER_DEPLOYMENT" --replicas=0
+kubectl -n "$NAMESPACE" wait --for=delete pod -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=worker" --timeout=120s || true
+
 kubectl -n "$NAMESPACE" exec deployment/"$COORDINATOR_DEPLOYMENT" -- cat /tmp/coordinator-state.json >"$WORKDIR/state-before.json"
 python - "$WORKDIR/state-before.json" <<'PY'
 import base64
@@ -183,10 +189,8 @@ if b"round-" not in model:
     raise SystemExit("Kubernetes worker did not advance the global model beyond bootstrap")
 PY
 
-# Remove the worker, restart only the coordinator container, and verify the
-# emptyDir-backed state survives the container restart without identity drift.
-kubectl -n "$NAMESPACE" scale deployment/"$WORKER_DEPLOYMENT" --replicas=0
-kubectl -n "$NAMESPACE" wait --for=delete pod -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=worker" --timeout=120s || true
+# Restart only the coordinator container and verify the emptyDir-backed state
+# survives the container restart without identity or model drift.
 COORD_POD="$(kubectl -n "$NAMESPACE" get pod -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=coordinator" -o jsonpath='{.items[0].metadata.name}')"
 RESTART_BEFORE="$(kubectl -n "$NAMESPACE" get pod "$COORD_POD" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
 kubectl -n "$NAMESPACE" exec "$COORD_POD" -- sh -c 'kill -TERM 1' >/dev/null 2>&1 || true
