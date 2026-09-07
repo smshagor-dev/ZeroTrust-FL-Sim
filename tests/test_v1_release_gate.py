@@ -29,6 +29,11 @@ def test_v1_publication_is_fail_closed_before_final_version_bump() -> None:
         validate_publish_gate("v1.0.0", "a" * 40, ROOT)
 
 
+def test_release_workflow_uses_prepared_v1_release_notes() -> None:
+    workflow = (ROOT / ".github/workflows/release-images.yml").read_text(encoding="utf-8")
+    assert 'notes="docs/releases/${VERSION}.md"' in workflow
+
+
 def test_canonical_external_gates_are_unsatisfied_in_current_manifest() -> None:
     evidence = load_evidence(ROOT)
     gates = evidence["hard_gates"]

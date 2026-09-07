@@ -13,10 +13,15 @@ permissions:
   attestations: write
   issues: read
 
+concurrency:
+  group: release-images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   images:
     name: Publish signed release artifacts and immutable OCI digests
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -204,7 +209,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          notes="docs/releases/${VERSION#v}.md"
+          notes="docs/releases/${VERSION}.md"
           if [ -f "$notes" ]; then
             cp "$notes" release-metadata/release-notes.md
           else
