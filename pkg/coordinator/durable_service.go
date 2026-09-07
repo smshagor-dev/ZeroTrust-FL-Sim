@@ -19,23 +19,32 @@ type DurableService struct {
 	service    *Service
 	store      StateStore
 	experiment ExperimentMetadata
+	modelID    string
 
 	persistenceMu sync.Mutex
 }
 
 func NewDurableService(registry *ztsecurity.RegistrationStore, cfg Config, store StateStore) (*DurableService, error) {
-	return NewDurableServiceWithExperiment(registry, cfg, store, ExperimentConfig{})
+	return NewDurableServiceWithIdentity(registry, cfg, store, ExperimentConfig{}, DefaultModelID)
 }
 
 func NewDurableServiceWithExperiment(registry *ztsecurity.RegistrationStore, cfg Config, store StateStore, experimentConfig ExperimentConfig) (*DurableService, error) {
+	return NewDurableServiceWithIdentity(registry, cfg, store, experimentConfig, DefaultModelID)
+}
+
+func NewDurableServiceWithIdentity(registry *ztsecurity.RegistrationStore, cfg Config, store StateStore, experimentConfig ExperimentConfig, modelID string) (*DurableService, error) {
 	if store == nil {
 		return nil, errors.New("durable state store is required")
+	}
+	modelID, err := normalizeModelID(modelID)
+	if err != nil {
+		return nil, fmt.Errorf("configure durable model identity: %w", err)
 	}
 	service, err := NewService(registry, cfg)
 	if err != nil {
 		return nil, err
 	}
-	durable := &DurableService{service: service, store: store}
+	durable := &DurableService{service: service, store: store, modelID: modelID}
 	experiment, err := newExperimentMetadata(experimentConfig, durable.basePolicy(), time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("configure experiment identity: %w", err)
@@ -143,6 +152,7 @@ func (s *DurableService) basePolicy() StatePolicy {
 		MinUpdates:          s.service.minUpdates,
 		MaxUpdatesPerMinute: s.service.maxUpdatesPerMinute,
 		AggregationMethod:   s.service.aggregationMethod,
+		ModelID:             s.modelID,
 	}
 }
 
@@ -204,13 +214,21 @@ func (s *DurableService) captureSnapshot() StateSnapshot {
 func (s *DurableService) restoreSnapshot(snapshot StateSnapshot) error {
 	if experimentMetadataMissing(snapshot.Policy.Experiment) {
 		// Schema-v1 snapshots predate explicit experiment identity. The upgrade
-		// adopts the current runtime identity exactly once and the normalization
-		// commit immediately rewrites the state as schema v2. Identity is never
-		// inferred from model version or round state.
+		// adopts the configured runtime identity exactly once and normalization
+		// immediately rewrites the state in the current schema.
 		snapshot.Policy.Experiment = s.experiment
+	}
+	if snapshot.Policy.ModelID == "" {
+		// Schema-v1/v2 snapshots predate durable model identity. The current
+		// runtime model ID is adopted once; schema-v3 loads never reach this path
+		// with a missing model ID because the store rejects them first.
+		snapshot.Policy.ModelID = s.modelID
 	}
 	if err := validateStateSnapshot(snapshot); err != nil {
 		return err
+	}
+	if snapshot.Policy.ModelID != s.modelID {
+		return fmt.Errorf("durable model identity does not match current runtime configuration")
 	}
 	if !sameExperimentIdentity(snapshot.Policy.Experiment, s.experiment) {
 		return fmt.Errorf("durable experiment identity does not match current runtime configuration")
@@ -220,8 +238,8 @@ func (s *DurableService) restoreSnapshot(snapshot StateSnapshot) error {
 	if snapshot.Policy != expectedPolicy {
 		return fmt.Errorf("durable coordinator policy does not match current runtime configuration")
 	}
-	// Persisted creation time is authoritative after a successful identity
-	// check. This keeps the experiment lifetime stable across restarts.
+	// Persisted creation time is authoritative after successful identity
+	// checks. This keeps the experiment lifetime stable across restarts.
 	s.experiment = snapshot.Policy.Experiment
 
 	pending := make(map[string]pendingUpdate, len(snapshot.Pending))
