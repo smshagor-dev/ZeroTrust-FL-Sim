@@ -384,3 +384,9 @@ def _validate_delay_range(value: tuple[float, float], name: str) -> None:
     low, high = value
     if low < 0 or high < low:
         raise ValueError(f"{name} must satisfy 0 <= min <= max")
+
+
+def _seed_everything(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed % (2**32 - 1))
+    torch.manual_seed(seed)
