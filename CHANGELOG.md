@@ -27,6 +27,9 @@ The format is based on Keep a Changelog, and the project intends to use semantic
 - Commit-bound reproducibility manifests for release benchmark runs, including research configuration digests and runtime facts.
 - Real ephemeral Kind/Kubernetes supported-profile evidence with immutable image digests, CI-only PKI, authenticated worker model advancement, worker loss/recovery, and coordinator restart verification.
 - Operator objectives, recovery runbooks, and a release-readiness evidence map linking claims to executable tests and workflows.
+- A tracked v1.0 production evidence manifest covering repository protection, independent security review, OpenSSF application evidence, the supported CPU/native profile, and the explicit CUDA validation boundary.
+- An executable v1 production release validator with regression tests that fails closed on missing external evidence, version drift, release-note placeholders, unsupported stable tags, and unsupported CUDA validation claims.
+- Prepared v1.0.0 release notes and a production release contract defining compatibility, supported deployment scope, security claim boundaries, and publication sequencing.
 
 ### Changed
 
@@ -36,6 +39,7 @@ The format is based on Keep a Changelog, and the project intends to use semantic
 - Recovery bundle manifests use schema v2 and bind restored state to the persisted experiment identity/configuration fingerprint.
 - The v0.9 release-candidate contract explicitly separates CPU/native CI evidence from CUDA hardware validation and limits privacy/encryption claims to implemented paths.
 - Benchmark smoke evidence now emits and verifies an exact-commit reproducibility manifest instead of relying on benchmark outputs alone.
+- Tag-triggered release publication now validates the tracked production contract and live v1 blocker issue states before GHCR authentication, then creates a GitHub Release only after immutable image publication, SBOM generation, signing, attestations, and checksum evidence succeed.
 
 ## Version History
 
