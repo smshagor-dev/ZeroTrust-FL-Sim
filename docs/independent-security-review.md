@@ -57,6 +57,18 @@ python scripts/prepare_security_review_bundle.py \
 
 For an agreed review baseline, check out that exact commit first. `--commit <40-character-sha>` is an optional assertion and must exactly match the checked-out `git HEAD`; it cannot relabel a different tree. The generator also refuses to run when tracked files are modified, so the bundle cannot claim a clean commit while packaging local tracked changes.
 
+### GitHub Actions handoff
+
+Maintainers can also create the same handoff without preparing a local environment:
+
+1. Open the repository's **Actions** tab.
+2. Select **Security Review Bundle**.
+3. Choose **Run workflow** from the trusted default branch.
+4. Leave `reviewed_commit` empty to package the selected ref's exact `GITHUB_SHA`, or provide a full lowercase 40-character commit SHA.
+5. Download the resulting `security-review-bundle-<short-sha>` artifact and provide it to the reviewer.
+
+The workflow validates the requested SHA before checkout, verifies the checked-out `HEAD` and tracked-tree cleanliness, invokes the same bundle generator, records the archive SHA-256 digest, checks required archive members, and uploads the directory, deterministic tarball, and tarball checksum with a 90-day retention period. It uses read-only repository contents permission and pinned GitHub Actions dependencies.
+
 The generated bundle contains:
 
 - `REVIEW_BASELINE.json` with the exact reviewed SHA, supported-profile declaration, included evidence paths, and the external attestation fields that remain mandatory;
@@ -67,7 +79,7 @@ The generated bundle contains:
 
 The bundle generator fails closed when required evidence is missing, the checkout is not clean for tracked files, the supplied commit does not exactly match `git HEAD`, or an unsafe output path would overwrite unrelated content. Re-running it from the same source tree and commit produces byte-identical archive content.
 
-The archive is only a repository-authored handoff mechanism. It does not establish reviewer independence, validate findings, close issue #70, or replace a final externally authored report/reference.
+The local generator and GitHub Actions workflow are repository-authored handoff mechanisms only. They do not establish reviewer independence, validate findings, close issue #70, or replace a final externally authored report/reference.
 
 ## Finding record
 
