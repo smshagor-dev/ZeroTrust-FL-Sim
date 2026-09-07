@@ -6,6 +6,7 @@ on:
       - 'v*'
 
 permissions:
+  actions: read
   contents: write
   packages: write
   id-token: write
@@ -28,6 +29,23 @@ jobs:
           python scripts/validate_v1_release.py --mode publish
           --tag "$RELEASE_TAG"
           --commit "$RELEASE_COMMIT"
+      - name: Validate exact v1 release commit workflows
+        if: github.ref_name == 'v1.0.0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for workflow in "CI" "Security" "Deployment Validation" "Release Evidence"; do
+            conclusion="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+              -f head_sha="$RELEASE_COMMIT" \
+              -f per_page=100 \
+              --jq ".workflow_runs | map(select(.name == \"${workflow}\" and .status == \"completed\")) | sort_by(.run_number) | last | .conclusion // \"missing\"")"
+            if [ "$conclusion" != success ]; then
+              echo "exact release commit workflow ${workflow} is not green: ${conclusion}" >&2
+              exit 1
+            fi
+          done
       - name: Validate live v1 production blocker states
         if: github.ref_name == 'v1.0.0'
         env:
