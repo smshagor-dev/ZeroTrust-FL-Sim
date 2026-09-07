@@ -10,7 +10,7 @@ from zerotrust_fl.sdk import SDK_API_VERSION, Enrollment, WorkerConfig
 
 
 def test_public_sdk_surface_is_explicit_and_versioned() -> None:
-    assert zerotrust_fl.__version__ == "0.7.0"
+    assert zerotrust_fl.__version__ == "0.9.0"
     assert SDK_API_VERSION == "1"
     assert zerotrust_fl.__all__ == [
         "SDK_API_VERSION",
