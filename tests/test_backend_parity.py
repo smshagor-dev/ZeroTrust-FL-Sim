@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+
 from zerotrust_fl.aggregators.native_cpp import CppByzantineAggregator
 from zerotrust_fl.engine.coordinator import AggregationConfig, _torch_aggregate
 
