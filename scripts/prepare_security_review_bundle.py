@@ -9,8 +9,8 @@ import re
 import shutil
 import subprocess
 import tarfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -156,20 +156,22 @@ def _write_checksums(output_dir: Path) -> None:
 
 def _write_deterministic_archive(output_dir: Path, archive_path: Path) -> None:
     archive_path.parent.mkdir(parents=True, exist_ok=True)
-    with archive_path.open("wb") as raw:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive:
-                for path in sorted(p for p in output_dir.rglob("*") if p.is_file()):
-                    data = path.read_bytes()
-                    info = tarfile.TarInfo(path.relative_to(output_dir).as_posix())
-                    info.size = len(data)
-                    info.mode = 0o644
-                    info.mtime = 0
-                    info.uid = 0
-                    info.gid = 0
-                    info.uname = ""
-                    info.gname = ""
-                    archive.addfile(info, io.BytesIO(data))
+    with (
+        archive_path.open("wb") as raw,
+        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed,
+        tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive,
+    ):
+        for path in sorted(p for p in output_dir.rglob("*") if p.is_file()):
+            data = path.read_bytes()
+            info = tarfile.TarInfo(path.relative_to(output_dir).as_posix())
+            info.size = len(data)
+            info.mode = 0o644
+            info.mtime = 0
+            info.uid = 0
+            info.gid = 0
+            info.uname = ""
+            info.gname = ""
+            archive.addfile(info, io.BytesIO(data))
 
 
 def _archive_has_bundle_marker(archive_path: Path) -> bool:
