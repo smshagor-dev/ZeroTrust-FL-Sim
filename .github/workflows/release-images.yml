@@ -208,12 +208,12 @@ jobs:
           gh release create "$VERSION" \
             --verify-tag \
             --title "ZeroTrust-FL-Sim ${VERSION}" \
-            --notes-file release-metadata/release-notes.md \
-            release-metadata/ZeroTrust-FL-Sim-${VERSION}-source.tar.gz \
-            release-metadata/source.sigstore.json \
-            release-metadata/source.spdx.json \
-            release-metadata/coordinator.spdx.json \
-            release-metadata/worker.spdx.json \
-            release-metadata/recovery.spdx.json \
-            release-metadata/image-digests.txt \
-            release-metadata/SHA256SUMS
+            --notes-file "release-metadata/release-notes.md" \
+            "release-metadata/ZeroTrust-FL-Sim-${VERSION}-source.tar.gz" \
+            "release-metadata/source.sigstore.json" \
+            "release-metadata/source.spdx.json" \
+            "release-metadata/coordinator.spdx.json" \
+            "release-metadata/worker.spdx.json" \
+            "release-metadata/recovery.spdx.json" \
+            "release-metadata/image-digests.txt" \
+            "release-metadata/SHA256SUMS"
