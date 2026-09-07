@@ -15,6 +15,7 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 BUNDLE_SCHEMA_VERSION = 1
+BUNDLE_MARKER = ".ztfl-review-bundle"
 
 EVIDENCE_PATHS = (
     "SECURITY.md",
@@ -147,6 +148,28 @@ def _write_deterministic_archive(output_dir: Path, archive_path: Path) -> None:
                     archive.addfile(info, io.BytesIO(data))
 
 
+def _prepare_output_directory(root: Path, output_dir: Path, archive_path: Path, force: bool) -> None:
+    if output_dir == root or output_dir in root.parents:
+        raise ReviewBundleError("output directory must not be the repository root or its ancestor")
+    if archive_path == output_dir or output_dir in archive_path.parents:
+        raise ReviewBundleError("archive path must be outside the review bundle directory")
+
+    if output_dir.exists():
+        if not force:
+            raise ReviewBundleError(f"output directory already exists: {output_dir}")
+        marker = output_dir / BUNDLE_MARKER
+        if not marker.is_file():
+            raise ReviewBundleError(
+                "refusing to replace an existing directory without the review-bundle marker"
+            )
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    (output_dir / BUNDLE_MARKER).write_text(
+        f"schema_version={BUNDLE_SCHEMA_VERSION}\n",
+        encoding="utf-8",
+    )
+
+
 def build_review_bundle(
     root: Path,
     output_dir: Path,
@@ -160,12 +183,7 @@ def build_review_bundle(
     archive_path = archive_path.resolve()
     reviewed_commit = _resolve_commit(root, commit)
 
-    if output_dir.exists():
-        if not force:
-            raise ReviewBundleError(f"output directory already exists: {output_dir}")
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True)
-
+    _prepare_output_directory(root, output_dir, archive_path, force)
     copied = _copy_required_files(root, output_dir)
     _write_baseline(root, output_dir, reviewed_commit, copied)
     _write_report_template(output_dir, reviewed_commit)
@@ -182,7 +200,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("review-bundle"))
     parser.add_argument("--archive", type=Path, default=Path("review-bundle.tar.gz"))
     parser.add_argument("--commit", help="explicit 40-character reviewed commit SHA")
-    parser.add_argument("--force", action="store_true", help="replace an existing output directory")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="replace only a directory previously created by this bundle generator",
+    )
     return parser.parse_args()
 
 
