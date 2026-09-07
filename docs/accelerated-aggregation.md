@@ -88,7 +88,13 @@ The producing process must remain alive for as long as receiving processes use t
 
 Native kernels are launched on `torch.cuda.current_stream(device)`. The pointer table, PyTorch `topk` operations, and output tensors therefore participate in the same stream dependency chain without an unconditional device synchronization.
 
-`validate_finite=False` is the default for the CUDA backend so very large updates do not incur a second full model scan before aggregation. Set `validate_finite=True` when strict finite-value validation is required; this adds a GPU reduction and host-visible scalar check for each update.
+`validate_finite=True` is the secure default for the CUDA wrapper. It checks each update for NaN/Inf before native aggregation. Setting `validate_finite=False` is an explicit performance tradeoff that removes that validation pass and must not be represented as the secure/default profile.
+
+## Validation evidence
+
+Repository CPU/native CI does not by itself validate CUDA behavior. CUDA parity tests are conditional on a CUDA-enabled native build and a visible CUDA device; a skipped test is not evidence of CUDA parity.
+
+A release may claim CUDA validation only when a real CUDA runner records the commit SHA, GPU model, driver/runtime/toolkit, PyTorch/native metadata, tested aggregation parameters, numerical tolerances, and pass/fail comparison against the documented CPU/native reference. See `docs/release-candidate-contract.md`.
 
 ## Complexity
 
