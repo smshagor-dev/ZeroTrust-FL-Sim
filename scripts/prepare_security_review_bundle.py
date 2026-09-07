@@ -42,24 +42,48 @@ class ReviewBundleError(RuntimeError):
     """Raised when the security-review handoff bundle cannot be produced safely."""
 
 
-def _resolve_commit(root: Path, explicit_commit: str | None) -> str:
-    if explicit_commit is not None:
-        commit = explicit_commit.strip().lower()
-    else:
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=root,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
-            raise ReviewBundleError(f"resolve git HEAD: {exc}") from exc
-        commit = result.stdout.strip().lower()
+def _run_git(root: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ReviewBundleError(f"git {' '.join(args)}: {exc}") from exc
+    return result.stdout
+
+
+def _git_head(root: Path) -> str:
+    commit = _run_git(root, "rev-parse", "HEAD").strip().lower()
     if SHA_RE.fullmatch(commit) is None:
-        raise ReviewBundleError("reviewed commit must be a full lowercase 40-character SHA")
+        raise ReviewBundleError("git HEAD is not a full lowercase 40-character SHA")
     return commit
+
+
+def _assert_tracked_checkout_clean(root: Path) -> None:
+    status = _run_git(root, "status", "--porcelain", "--untracked-files=no")
+    if status.strip():
+        raise ReviewBundleError(
+            "tracked checkout is dirty; review evidence must be generated from an exact commit"
+        )
+
+
+def _resolve_commit(root: Path, explicit_commit: str | None) -> str:
+    actual = _git_head(root)
+    if explicit_commit is None:
+        return actual
+
+    requested = explicit_commit.strip().lower()
+    if SHA_RE.fullmatch(requested) is None:
+        raise ReviewBundleError("reviewed commit must be a full lowercase 40-character SHA")
+    if requested != actual:
+        raise ReviewBundleError(
+            f"requested reviewed commit {requested} does not match checked-out HEAD {actual}"
+        )
+    return actual
 
 
 def _copy_required_files(root: Path, output_dir: Path) -> list[str]:
@@ -204,8 +228,9 @@ def build_review_bundle(
     root = root.resolve()
     output_dir = output_dir.resolve()
     archive_path = archive_path.resolve()
-    reviewed_commit = _resolve_commit(root, commit)
 
+    _assert_tracked_checkout_clean(root)
+    reviewed_commit = _resolve_commit(root, commit)
     _prepare_output_directory(root, output_dir, archive_path, force)
     copied = _copy_required_files(root, output_dir)
     _write_baseline(root, output_dir, reviewed_commit, copied)
@@ -222,7 +247,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--output-dir", type=Path, default=Path("review-bundle"))
     parser.add_argument("--archive", type=Path, default=Path("review-bundle.tar.gz"))
-    parser.add_argument("--commit", help="explicit 40-character reviewed commit SHA")
+    parser.add_argument(
+        "--commit",
+        help="optional full reviewed SHA; must exactly match the checked-out git HEAD",
+    )
     parser.add_argument(
         "--force",
         action="store_true",
