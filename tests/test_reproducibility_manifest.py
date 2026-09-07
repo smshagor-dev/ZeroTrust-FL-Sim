@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from benchmarks.reproducibility import (
     MANIFEST_SCHEMA_VERSION,
     build_manifest,
