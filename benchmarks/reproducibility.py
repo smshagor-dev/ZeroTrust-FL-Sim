@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+
 import zerotrust_fl
 from zerotrust_fl.aggregators.native_cpp import native_extension_available
 
