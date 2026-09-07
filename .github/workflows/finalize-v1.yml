@@ -1,0 +1,138 @@
+name: Finalize v1.0.0 Tag
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Security
+      - Deployment Validation
+      - Release Evidence
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+  issues: read
+
+concurrency:
+  group: finalize-v1.0.0
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag exact all-green v1.0.0 release commit
+    if: github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve candidate
+        id: candidate
+        env:
+          RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "invalid workflow_run head SHA: $RELEASE_COMMIT" >&2
+            exit 1
+          fi
+          echo "sha=$RELEASE_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Ignore after v1.0.0 tag already exists
+        id: existing
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin refs/tags/v1.0.0 >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "v1.0.0 already exists; finalizer is idempotently complete"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify candidate is still main HEAD
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          RELEASE_COMMIT: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$remote_main" != "$RELEASE_COMMIT" ]; then
+            echo "candidate is no longer main HEAD: candidate=${RELEASE_COMMIT} main=${remote_main}" >&2
+            exit 0
+          fi
+
+      - name: Validate tracked v1 publication contract
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          RELEASE_COMMIT: ${{ steps.candidate.outputs.sha }}
+        run: >-
+          python scripts/validate_v1_release.py --mode publish
+          --tag v1.0.0
+          --commit "$RELEASE_COMMIT"
+
+      - name: Verify all exact-commit workflows are green
+        id: workflows
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ready=true
+          for workflow in "CI" "Security" "Deployment Validation" "Release Evidence"; do
+            conclusion="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+              -f head_sha="$RELEASE_COMMIT" \
+              -f per_page=100 \
+              --jq ".workflow_runs | map(select(.name == \"${workflow}\" and .status == \"completed\")) | sort_by(.run_number) | last | .conclusion // \"missing\"")"
+            echo "${workflow}: ${conclusion}"
+            if [ "$conclusion" != success ]; then
+              ready=false
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Verify live assurance issue dispositions
+        if: steps.existing.outputs.exists == 'false' && steps.workflows.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/v1-assurance-gates.tsv
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(Path("release/v1.0-evidence.json").read_text(encoding="utf-8"))
+          for gate in evidence["hard_gates"].values():
+              if gate["satisfied"] and not gate["waived"]:
+                  expected_reason = "completed"
+              elif gate["waived"] and not gate["satisfied"]:
+                  expected_reason = "not_planned"
+              else:
+                  raise SystemExit(f"invalid assurance disposition for issue #{gate['issue']}")
+              print(f"{gate['issue']}\t{expected_reason}")
+          PY
+          while IFS=$'\t' read -r issue expected_reason; do
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq .state)"
+            reason="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state_reason // ""')"
+            if [ "$state" != closed ] || [ "$reason" != "$expected_reason" ]; then
+              echo "assurance issue #${issue} not ready: state=${state} reason=${reason} expected=${expected_reason}" >&2
+              exit 1
+            fi
+          done < /tmp/v1-assurance-gates.tsv
+
+      - name: Create v1.0.0 tag on exact release commit
+        if: steps.existing.outputs.exists == 'false' && steps.workflows.outputs.ready == 'true'
+        env:
+          RELEASE_COMMIT: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag v1.0.0 "$RELEASE_COMMIT"
+          git push origin refs/tags/v1.0.0
+          echo "created v1.0.0 at $RELEASE_COMMIT"
