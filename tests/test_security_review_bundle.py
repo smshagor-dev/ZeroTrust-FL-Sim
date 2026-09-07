@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.prepare_security_review_bundle import (
+    BUNDLE_MARKER,
     EVIDENCE_PATHS,
     ReviewBundleError,
     build_review_bundle,
@@ -56,6 +57,7 @@ def test_review_bundle_is_deterministic_and_pins_commit(tmp_path: Path) -> None:
     assert baseline["included_paths"] == sorted(EVIDENCE_PATHS)
 
     checksums = (first_dir / "SHA256SUMS").read_text(encoding="utf-8")
+    assert BUNDLE_MARKER in checksums
     assert "REVIEW_BASELINE.json" in checksums
     assert "REVIEW_REPORT_TEMPLATE.md" in checksums
     assert "docs/independent-security-review.md" in checksums
@@ -85,4 +87,53 @@ def test_review_bundle_rejects_noncanonical_commit(tmp_path: Path) -> None:
             tmp_path / "bundle",
             tmp_path / "bundle.tar.gz",
             commit="abc123",
+        )
+
+
+def test_force_refuses_to_delete_unmarked_existing_directory(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _seed_review_root(root)
+    output_dir = tmp_path / "existing"
+    output_dir.mkdir()
+    protected_file = output_dir / "keep.txt"
+    protected_file.write_text("do not delete\n", encoding="utf-8")
+
+    with pytest.raises(ReviewBundleError, match="without the review-bundle marker"):
+        build_review_bundle(
+            root,
+            output_dir,
+            tmp_path / "bundle.tar.gz",
+            commit="c" * 40,
+            force=True,
+        )
+    assert protected_file.read_text(encoding="utf-8") == "do not delete\n"
+
+
+def test_force_replaces_only_previous_bundle_output(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _seed_review_root(root)
+    output_dir = tmp_path / "bundle"
+    archive = tmp_path / "bundle.tar.gz"
+
+    build_review_bundle(root, output_dir, archive, commit="d" * 40)
+    stale = output_dir / "stale.txt"
+    stale.write_text("stale\n", encoding="utf-8")
+
+    build_review_bundle(root, output_dir, archive, commit="e" * 40, force=True)
+    assert not stale.exists()
+    baseline = json.loads((output_dir / "REVIEW_BASELINE.json").read_text(encoding="utf-8"))
+    assert baseline["reviewed_commit"] == "e" * 40
+
+
+def test_archive_must_be_outside_bundle_directory(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _seed_review_root(root)
+    output_dir = tmp_path / "bundle"
+
+    with pytest.raises(ReviewBundleError, match="archive path must be outside"):
+        build_review_bundle(
+            root,
+            output_dir,
+            output_dir / "bundle.tar.gz",
+            commit="f" * 40,
         )
