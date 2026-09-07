@@ -149,6 +149,7 @@ class AsyncFederatedCoordinator:
                 "vector protocol; use a buffer-free model until full state-dict "
                 "synchronization is enabled"
             )
+        _parameter_vector(self.model)
         self._validate_round_counts()
 
         self._ctx: mp.context.BaseContext | None = None
@@ -259,7 +260,7 @@ class AsyncFederatedCoordinator:
         self._drain_completed_results()
         selected = self._select_clients(round_id)
 
-        global_parameters = parameters_to_vector(self.model.parameters()).detach().cpu().float()
+        global_parameters = _parameter_vector(self.model).cpu().float()
         for node_id in selected:
             self._command_queues[node_id].put(
                 TrainCommand(
@@ -290,11 +291,7 @@ class AsyncFederatedCoordinator:
         else:
             updates = [result.update for result in results if result.update is not None]
             aggregated, backend_used = self._aggregate(updates)
-        current = parameters_to_vector(self.model.parameters()).detach()
-        vector_to_parameters(
-            current + aggregated.to(dtype=current.dtype, device=current.device),
-            self.model.parameters(),
-        )
+        _apply_parameter_delta(self.model, aggregated)
 
         evaluation_loss, evaluation_accuracy = self._evaluate()
         mitigation_score, attack_mitigated = _attack_mitigation_metrics(
@@ -582,6 +579,39 @@ class AsyncFederatedCoordinator:
             )
 
 
+def _parameter_vector(model: nn.Module) -> torch.Tensor:
+    vector = parameters_to_vector(model.parameters()).detach()
+    if vector.ndim != 1:
+        raise ValueError("model parameter vector must be one-dimensional")
+    if vector.numel() <= 0:
+        raise ValueError("model must contain at least one trainable parameter")
+    if not bool(torch.isfinite(vector).all()):
+        raise ValueError("global model parameters contain non-finite values")
+    return vector
+
+
+def _apply_parameter_delta(model: nn.Module, delta: torch.Tensor) -> None:
+    if not isinstance(delta, torch.Tensor):
+        raise TypeError("aggregated update must be a torch.Tensor")
+
+    current = _parameter_vector(model)
+    prepared = delta.detach().to(dtype=current.dtype, device=current.device)
+    if prepared.ndim != 1:
+        raise ValueError("aggregated update must be a flat parameter vector")
+    if prepared.numel() != current.numel():
+        raise ValueError(
+            f"aggregated update vector has {prepared.numel()} values; "
+            f"model expects {current.numel()}"
+        )
+    if not bool(torch.isfinite(prepared).all()):
+        raise ValueError("aggregated update contains non-finite values")
+
+    candidate = current + prepared
+    if not bool(torch.isfinite(candidate).all()):
+        raise ValueError("aggregated global model contains non-finite values")
+    vector_to_parameters(candidate, model.parameters())
+
+
 def _weighted_fedavg(results: list[WorkerResult]) -> torch.Tensor:
     """Compute sample-weighted FedAvg over successful worker deltas."""
 
@@ -617,6 +647,12 @@ def _torch_aggregate(
     updates: list[torch.Tensor],
     config: AggregationConfig,
 ) -> torch.Tensor:
+    if not updates:
+        raise ValueError("cannot aggregate an empty update list")
+    reference_shape = updates[0].shape
+    if any(update.shape != reference_shape for update in updates):
+        raise ValueError("all model updates must have the same shape")
+
     stacked = torch.stack([update.detach().cpu().float() for update in updates])
     if not torch.isfinite(stacked).all():
         raise ValueError("aggregation input contains non-finite values")
@@ -654,6 +690,8 @@ def _torch_aggregate(
                 sorted=False,
             ).values.sum()
         k = 1 if config.method == "krum" else config.k
+        if k <= 0 or k > neighbor_count:
+            raise ValueError("Multi-Krum k must satisfy 1 <= k <= n-f-2")
         selected_indices = torch.topk(
             scores,
             k=k,
