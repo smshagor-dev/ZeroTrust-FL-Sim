@@ -37,7 +37,7 @@ def test_manifest_pins_release_commit_and_research_configuration() -> None:
     manifest = _manifest(runtime={"machine": "x86_64", "cuda_available": False})
 
     assert manifest["schema_version"] == MANIFEST_SCHEMA_VERSION == 1
-    assert manifest["release_version"] == "0.9.0"
+    assert manifest["release_version"] == "1.0.0"
     assert manifest["commit_sha"] == COMMIT
     assert manifest["cuda_parity_evidence"] == "not_collected_by_benchmark_manifest"
 
