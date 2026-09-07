@@ -30,6 +30,7 @@ func TestRecoveryBackupDoesNotAutoMigrateSource(t *testing.T) {
 			MinUpdates:          1,
 			MaxUpdatesPerMinute: 60,
 			AggregationMethod:   "median",
+			ModelID:             coordinator.DefaultModelID,
 			Experiment: coordinator.ExperimentMetadata{
 				ID:           "recovery-source-schema",
 				ConfigSHA256: "5555555555555555555555555555555555555555555555555555555555555555",

@@ -76,6 +76,7 @@ func TestDisasterRecoveryBackupDestroyRestore(t *testing.T) {
 			MinUpdates:          2,
 			MaxUpdatesPerMinute: 60,
 			AggregationMethod:   "median",
+			ModelID:             coordinator.DefaultModelID,
 			Experiment:          experiment,
 		},
 		Model: &flv1.GlobalModel{
