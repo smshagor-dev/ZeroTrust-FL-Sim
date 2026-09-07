@@ -6,10 +6,11 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
   packages: write
   id-token: write
   attestations: write
+  issues: read
 
 jobs:
   images:
@@ -17,6 +18,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Validate tracked production release contract
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: >-
+          python scripts/validate_v1_release.py --mode publish
+          --tag "$RELEASE_TAG"
+          --commit "$RELEASE_COMMIT"
+      - name: Validate live v1 production blocker states
+        if: github.ref_name == 'v1.0.0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for issue in 37 70 73; do
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq .state)"
+            reason="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state_reason // ""')"
+            if [ "$state" != closed ] || [ "$reason" != completed ]; then
+              echo "v1.0.0 blocker #${issue} is not closed as completed: state=${state} reason=${reason}" >&2
+              exit 1
+            fi
+          done
       - name: Authenticate to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Configure buildx
@@ -156,6 +181,17 @@ jobs:
             release-metadata/worker.spdx.json \
             release-metadata/recovery.spdx.json \
             > release-metadata/SHA256SUMS
+      - name: Prepare GitHub release notes
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          notes="docs/releases/${VERSION#v}.md"
+          if [ -f "$notes" ]; then
+            cp "$notes" release-metadata/release-notes.md
+          else
+            printf '# ZeroTrust-FL-Sim %s\n\nSee CHANGELOG.md for release details.\n' "$VERSION" > release-metadata/release-notes.md
+          fi
       - name: Upload release security evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -163,3 +199,21 @@ jobs:
           path: release-metadata/
           if-no-files-found: error
           retention-days: 90
+      - name: Publish GitHub Release with signed evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" \
+            --verify-tag \
+            --title "ZeroTrust-FL-Sim ${VERSION}" \
+            --notes-file release-metadata/release-notes.md \
+            release-metadata/ZeroTrust-FL-Sim-${VERSION}-source.tar.gz \
+            release-metadata/source.sigstore.json \
+            release-metadata/source.spdx.json \
+            release-metadata/coordinator.spdx.json \
+            release-metadata/worker.spdx.json \
+            release-metadata/recovery.spdx.json \
+            release-metadata/image-digests.txt \
+            release-metadata/SHA256SUMS
