@@ -15,10 +15,8 @@ from pathlib import Path
 from typing import Any
 
 import torch
-
 import zerotrust_fl
 from zerotrust_fl.aggregators.native_cpp import native_extension_available
-
 
 MANIFEST_SCHEMA_VERSION = 1
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")

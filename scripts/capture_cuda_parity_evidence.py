@@ -26,7 +26,6 @@ from zerotrust_fl.engine.coordinator import (
 
 from benchmarks.reproducibility import resolve_commit_sha
 
-
 EVIDENCE_SCHEMA_VERSION = 1
 PARITY_RTOL = 2e-4
 PARITY_ATOL = 2e-5

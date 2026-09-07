@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from benchmarks.reproducibility import (
     MANIFEST_SCHEMA_VERSION,
     build_manifest,
@@ -11,7 +12,6 @@ from benchmarks.reproducibility import (
     resolve_commit_sha,
     write_manifest,
 )
-
 
 COMMIT = "a" * 40
 
