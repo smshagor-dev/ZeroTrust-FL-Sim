@@ -429,14 +429,6 @@ func loadPostgresMigrations() ([]postgresMigration, error) {
 	return migrations, nil
 }
 
-func marshalPostgresStateArray(value any, field string) ([]byte, error) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("encode PostgreSQL %s: %w", field, err)
-	}
-	return encoded, nil
-}
-
 func decodePostgresJSON(data []byte, target any, field string) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
