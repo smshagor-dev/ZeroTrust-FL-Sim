@@ -53,7 +53,7 @@ RUN apt-get update \
         ca-certificates \
         libgomp1 \
         libstdc++6 \
-        python3.12-minimal \
+        python3.12 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 ztfl \
     && useradd --uid 10001 --gid ztfl --no-create-home --shell /usr/sbin/nologin ztfl
