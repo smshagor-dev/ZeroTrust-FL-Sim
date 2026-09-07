@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 import torch
-
 from scripts.capture_cuda_parity_evidence import capture
 
 
