@@ -1,13 +1,23 @@
-FROM python:3.12-slim AS builder
+FROM ubuntu:24.04 AS builder
 
-ENV VIRTUAL_ENV=/opt/venv \
+ENV DEBIAN_FRONTEND=noninteractive \
+    VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential cmake ninja-build git \
+    && apt-get dist-upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        git \
+        ninja-build \
+        python3.12 \
+        python3.12-dev \
+        python3.12-venv \
     && rm -rf /var/lib/apt/lists/* \
-    && python -m venv "$VIRTUAL_ENV"
+    && python3.12 -m venv "$VIRTUAL_ENV"
 
 WORKDIR /app
 COPY pyproject.toml setup.py MANIFEST.in requirements.txt ./
@@ -18,12 +28,14 @@ COPY scripts/generate_python_proto.py ./scripts/generate_python_proto.py
 
 RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install grpcio-tools==1.83.1 \
+    && python -m pip install 'torch==2.14.0+cpu' --index-url https://download.pytorch.org/whl/cpu \
     && python scripts/generate_python_proto.py \
     && ZTFL_NATIVE_ARCH=OFF ZTFL_ENABLE_CKKS=ON python -m pip install ".[benchmark]"
 
-FROM python:3.12-slim AS runtime
+FROM ubuntu:24.04 AS runtime
 
-ENV VIRTUAL_ENV=/opt/venv \
+ENV DEBIAN_FRONTEND=noninteractive \
+    VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     OMP_NUM_THREADS=1 \
@@ -32,7 +44,12 @@ ENV VIRTUAL_ENV=/opt/venv \
     ZTFL_SERVER_NAME=coordinator
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libgomp1 \
+    && apt-get dist-upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libgomp1 \
+        libstdc++6 \
+        python3.12-minimal \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 ztfl \
     && useradd --uid 10001 --gid ztfl --no-create-home --shell /usr/sbin/nologin ztfl

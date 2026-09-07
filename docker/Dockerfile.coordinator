@@ -17,11 +17,14 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/certgen ./security
 
-FROM ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.55 AS health-probe
+FROM golang:1.27-alpine AS health-probe-builder
+ARG GRPC_HEALTH_PROBE_COMMIT=82e04432a7344c01c56406a6ddf5c8b6841d5a65
+RUN CGO_ENABLED=0 go install github.com/grpc-ecosystem/grpc-health-probe@${GRPC_HEALTH_PROBE_COMMIT}
 
 FROM alpine:3.24 AS runtime
 
-RUN apk add --no-cache ca-certificates \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 ztfl \
     && adduser -S -D -H -u 10001 -G ztfl ztfl \
     && mkdir -p /var/lib/zerotrust-fl \
@@ -29,7 +32,7 @@ RUN apk add --no-cache ca-certificates \
 
 COPY --from=builder /out/coordinator /usr/local/bin/coordinator
 COPY --from=builder /out/certgen /usr/local/bin/certgen
-COPY --from=health-probe /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
+COPY --from=health-probe-builder /go/bin/grpc-health-probe /usr/local/bin/grpc_health_probe
 COPY docker/generate-dev-pki.sh /usr/local/bin/generate-dev-pki.sh
 RUN chmod 0555 /usr/local/bin/generate-dev-pki.sh
 
