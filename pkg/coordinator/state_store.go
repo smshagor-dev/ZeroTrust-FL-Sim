@@ -409,7 +409,7 @@ func validateStateSnapshot(snapshot StateSnapshot) error {
 			if math.IsNaN(converted) || math.IsInf(converted, 0) {
 				return fmt.Errorf("pending update for %q contains non-finite values", update.NodeID)
 			}
-	}
+		}
 	}
 
 	seenRegistrations := make(map[string]struct{}, len(snapshot.Registrations))
