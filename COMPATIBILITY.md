@@ -1,6 +1,6 @@
 # Compatibility Policy
 
-ZeroTrust-FL-Sim is pre-1.0. Interfaces may still change while the production protocol is being stabilized, but incompatible changes must be documented in release notes and should include a migration path when practical.
+ZeroTrust-FL-Sim is pre-1.0. Interfaces may still evolve while the production protocol is being stabilized, but incompatible changes must be documented in release notes and should include a migration path when practical. The v0.9 line additionally freezes the documented public Python SDK export surface and `SDK_API_VERSION = "1"`; removals or incompatible semantic changes require an explicit migration note and are not permitted as accidental maintenance changes.
 
 ## Compatibility domains
 
@@ -32,6 +32,18 @@ The new envelope fields are additive. Existing protobuf field numbers remain unc
 
 Coordinator and worker processes must use the same `ZTFL_MODEL_ID`. Changing that identity is an operator-visible compatibility change and should be treated as selecting a different model contract, not as a transparent rename.
 
+## v0.9 public Python API freeze
+
+For the v0.9 release line, the public Python API is the set exported by `zerotrust_fl.__all__` together with the behavior represented by `SDK_API_VERSION = "1"`.
+
+- Public exports may be extended additively when compatibility is preserved.
+- Existing public exports must not be removed or silently repurposed inside the v0.9 line.
+- Incompatible changes require an explicit changelog entry and migration instructions.
+- A security or data-integrity correction may intentionally reject behavior that was previously accepted; that is treated as a documented safety fix rather than a compatibility promise to preserve unsafe behavior.
+- Internal modules, underscored helpers, and the standalone native ABI remain outside this freeze unless separately documented as public.
+
+Repository tests pin both the export set and cross-file release version metadata.
+
 ## Platform tiers
 
 Until release automation publishes a broader matrix, the reference CI platform is Linux x86_64. Python, Go, compiler, CUDA, and operating-system versions are supported only when they are exercised by a release's documented test matrix.
@@ -44,11 +56,13 @@ Planned v1 tiers:
 - Tier 2 target: CUDA-enabled Linux where the published CUDA matrix passes
 - Tier 2 target: Windows and macOS client/development workflows where release artifacts exist
 
-A planned target is not a current support claim.
+A planned target is not a current support claim. A skipped CUDA test is not validation of CUDA parity or support.
 
 ## Deprecation
 
-After v1.0, documented stable APIs should receive at least one minor-release deprecation period before removal unless continued behavior creates a security vulnerability or data-corruption risk. Security emergency changes may be immediate and must include an advisory/migration note.
+During v0.9, the frozen documented public Python SDK surface should receive a documented migration path before incompatible removal unless continued behavior creates a security vulnerability or data-corruption risk. Security emergency changes may be immediate and must include an advisory/migration note.
+
+After v1.0, documented stable APIs should receive at least one minor-release deprecation period before removal unless continued behavior creates a security vulnerability or data-corruption risk.
 
 ## Version skew
 

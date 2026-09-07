@@ -1,11 +1,11 @@
 # Differential Privacy and CKKS Secure Aggregation
 
-ZeroTrust-FL-Sim protects model-update confidentiality in two complementary layers:
+ZeroTrust-FL-Sim provides two complementary privacy/confidentiality mechanisms, but they do not currently form one end-to-end encrypted network path:
 
-- **Local Differential Privacy (LDP):** each client clips its outgoing model-update vector and adds calibrated Gaussian noise before release.
-- **CKKS Homomorphic Encryption:** clients encrypt weighted model updates with a public key; the aggregation server adds ciphertexts without receiving the secret key; a separate decryptor/key authority decrypts only the aggregate.
+- **Local Differential Privacy (LDP):** the simulator and long-lived gRPC worker can clip an outgoing model-update vector and add calibrated Gaussian noise before release.
+- **CKKS Homomorphic Encryption:** the native C++20 extension provides a separate additive encrypted-aggregation primitive with client encryption, server-side ciphertext addition, and a distinct decryptor/key authority.
 
-These mechanisms address different threats. LDP reduces information leakage even if an authorized recipient sees the released update. CKKS hides individual updates from the aggregation server while it combines them. They can be composed.
+These mechanisms address different threats. LDP reduces information leakage even if an authorized recipient sees the released update. CKKS can hide individual plaintext updates from an aggregation process while it performs supported additive arithmetic. The current ordinary gRPC model-update wire path is not an end-to-end CKKS transport, so this repository does not claim that networked LDP and CKKS are already composed in production.
 
 ## 1. Local Rényi Differential Privacy
 
@@ -159,7 +159,7 @@ The decryptor recovers the weighted mean:
 u_{avg}=\frac{Dec_{sk}(c_{sum})}{\sum_i w_i}
 ```
 
-The aggregation server can therefore execute the addition without the secret key and without seeing any individual plaintext update.
+The CKKS aggregation object can therefore execute supported addition without receiving the secret key or individual plaintext updates.
 
 ### Why encrypted aggregation is limited to additive FedAvg-style operations
 
@@ -230,7 +230,7 @@ client = CKKSClientEncryptor(public)
 c1 = client.encrypt(protected.update, weight=100)
 c2 = client.encrypt(torch.tensor([0.1, 0.3]), weight=50)
 
-# Server receives no secret key.
+# CKKS aggregation object receives no secret key.
 server = CKKSServerAggregator(public.parameters)
 encrypted_aggregate = server.aggregate([c1, c2])
 
@@ -241,14 +241,18 @@ weighted_mean = decryptor.decrypt_weighted_mean(encrypted_aggregate)
 
 ## 5. Current integration boundary
 
-The native CKKS API implements the encrypted-computation primitive and tests key separation. The Go coordinator in this repository currently validates/accepts FL updates but is not the component that performs model aggregation or advances the global model. Therefore this change does **not** falsely reinterpret the existing Go RPC service as an FHE aggregator.
+The Go coordinator **does** aggregate accepted plaintext NPY update vectors and advance the global model after quorum. Its supported network aggregation methods are the coordinator's configured plaintext methods (currently median or weighted mean in that path).
 
-A future encrypted wire protocol can carry CKKS ciphertext chunks through the gRPC contract to a dedicated encrypted-aggregation service. That protocol will also need ciphertext-size limits, replay binding, model/round metadata authentication, key IDs, key rotation, and aggregate-decryption authorization.
+The native CKKS API is a separate encrypted-computation primitive and demo/test path. The ordinary `SubmitLocalUpdate` gRPC request currently carries the validated NPY `float32` update envelope rather than CKKS ciphertext chunks. Therefore the repository does **not** claim that the existing network coordinator is an end-to-end FHE aggregator.
+
+A future encrypted wire protocol can carry CKKS ciphertext chunks through a dedicated contract/service. That protocol will also need ciphertext-size limits, replay binding, model/round metadata authentication, key IDs, key rotation, and aggregate-decryption authorization.
 
 ## 6. Security boundaries
 
-- LDP protects the released update only to the degree justified by the clipping sensitivity, noise multiplier, adjacency definition, and composed privacy budget.
+- LDP protects the released update only to the degree justified by the clipping sensitivity, noise multiplier, adjacency definition, composed privacy budget, and randomness source.
+- Deterministic simulator randomness is for reproducible experiments and is not a production cryptographic randomness guarantee.
 - CKKS is approximate arithmetic, so decrypted results include small numerical approximation error.
 - The server-side CKKS API intentionally has no secret-key field, but process isolation is a deployment responsibility. Do not instantiate the decryptor inside the aggregation-server process in a real deployment.
 - Key rotation, threshold decryption, distributed key generation, ciphertext replay protection, malicious-ciphertext validation, and proof of correct encryption are separate controls and are not implied by additive CKKS aggregation.
 - FHE confidentiality does not replace mTLS, PQC transport, RBAC, authentication, or Byzantine-resilience controls.
+- The current ordinary network update path is plaintext-at-application-layer inside the authenticated transport envelope; it must not be described as CKKS encrypted merely because the native CKKS primitive exists in the repository.

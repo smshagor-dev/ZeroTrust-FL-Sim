@@ -129,6 +129,10 @@ def worker_process_main(
         raise RuntimeError(f"worker {config.node_id}: CUDA device requested but unavailable")
 
     model = build_model(model_spec).to(device)
+    if any(buffer.numel() for buffer in model.buffers()):
+        raise ValueError(
+            "models with registered buffers are not supported by the current vector protocol"
+        )
     subset = Subset(dataset, list(sample_indices))
     attack = PoisoningAttack(config.attack)
 
@@ -178,6 +182,34 @@ def build_model(spec: ModelSpec) -> nn.Module:
     return model
 
 
+def _load_global_parameters(
+    model: nn.Module,
+    global_parameters: torch.Tensor,
+    *,
+    device: torch.device,
+) -> torch.Tensor:
+    if not isinstance(global_parameters, torch.Tensor):
+        raise TypeError("global parameter vector must be a torch.Tensor")
+
+    prepared = global_parameters.detach().to(device=device, dtype=torch.float32)
+    if prepared.ndim != 1:
+        raise ValueError("global parameter vector must be one-dimensional")
+
+    expected_parameters = parameters_to_vector(model.parameters())
+    if expected_parameters.numel() <= 0:
+        raise ValueError("model must contain at least one trainable parameter")
+    if prepared.numel() != expected_parameters.numel():
+        raise ValueError(
+            f"global parameter vector has {prepared.numel()} values; "
+            f"model expects {expected_parameters.numel()}"
+        )
+    if not bool(torch.isfinite(prepared).all()):
+        raise ValueError("global parameter vector contains non-finite values")
+
+    vector_to_parameters(prepared, model.parameters())
+    return prepared
+
+
 def _execute_training_round(
     *,
     config: WorkerConfig,
@@ -191,17 +223,11 @@ def _execute_training_round(
     rng = np.random.default_rng(round_seed)
     torch.manual_seed(round_seed)
 
-    global_parameters = command.global_parameters.detach().to(
+    global_parameters = _load_global_parameters(
+        model,
+        command.global_parameters,
         device=device,
-        dtype=torch.float32,
     )
-    expected_parameters = parameters_to_vector(model.parameters())
-    if global_parameters.numel() != expected_parameters.numel():
-        raise ValueError(
-            f"global parameter vector has {global_parameters.numel()} values; "
-            f"model expects {expected_parameters.numel()}"
-        )
-    vector_to_parameters(global_parameters, model.parameters())
 
     dynamic_epochs = int(
         rng.integers(config.local_epochs_min, config.local_epochs_max + 1)
@@ -278,7 +304,7 @@ def _execute_training_round(
         device="cpu",
         dtype=torch.float32,
     )
-    baseline = command.global_parameters.detach().to(device="cpu", dtype=torch.float32)
+    baseline = global_parameters.detach().to(device="cpu", dtype=torch.float32)
     update = local_parameters - baseline
 
     if config.malicious and attack.attacks_updates:

@@ -20,14 +20,17 @@ The format is based on Keep a Changelog, and the project intends to use semantic
 - Production Helm chart with immutable image digests, isolated worker credentials, restrictive security contexts, probes, resources, NetworkPolicy, and PodDisruptionBudgets.
 - Multi-host deployment guidance and CI validation of rendered Kubernetes security invariants.
 - Release workflow that publishes coordinator, worker, and recovery OCI images and records immutable digests.
+- Fail-closed dependency, SAST, secret, license, container, fuzzing, SBOM, signing, and provenance gates for the supported release profile.
+- v0.9 release-contract tests that freeze the documented public Python SDK surface and fail CI when Python, CMake, Helm, or citation version metadata drifts.
+- v0.9 correctness regression coverage for fail-closed buffer-bearing models and Krum/Multi-Krum Byzantine population bounds.
 
 ### Changed
 
-- Package metadata now declares Apache-2.0 licensing and project links.
-- Python package and SDK version metadata are aligned at `0.7.0` while v1.0 production gates remain in progress.
+- Package, runtime, CMake, Helm, and citation metadata are aligned at `0.9.0` while v1.0 external production gates remain in progress.
 - Coordinator durable state snapshots now use schema v2; legacy schema-v1 state can be normalized once by the coordinator using the explicitly configured runtime experiment identity.
 - Recovery bundle manifests now use schema v2 and bind restored state to the persisted experiment identity/configuration fingerprint.
+- The v0.9 release-candidate contract explicitly separates CPU/native CI evidence from CUDA hardware validation and limits privacy/encryption claims to implemented paths.
 
 ## Version History
 
-Tagged release history will be recorded here as production release artifacts are published. Pre-1.0 package metadata now tracks the active engineering release line instead of the earlier inconsistent `0.3.0`/`0.4.0` values.
+Tagged release history will be recorded here as production release artifacts are published. Pre-1.0 package metadata now tracks the active engineering release line instead of the earlier inconsistent `0.3.0`/`0.4.0`/`0.7.0` values.

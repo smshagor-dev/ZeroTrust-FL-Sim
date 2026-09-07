@@ -173,7 +173,7 @@ py::array_t<double> double_vector_to_numpy(std::vector<double>&& values) {
 
 PYBIND11_MODULE(zerotrust_fl_cpp, module) {
     module.doc() = "C++20 robust and privacy-preserving aggregation primitives for ZeroTrust-FL-Sim";
-    module.attr("__version__") = "0.4.0";
+    module.attr("__version__") = ZTFL_VERSION;
 #ifdef ZTFL_HAS_OPENMP
     module.attr("openmp_enabled") = true;
 #else

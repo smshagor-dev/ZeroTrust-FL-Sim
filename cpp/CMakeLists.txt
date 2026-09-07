@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     zerotrust_fl_cpp
-    VERSION 0.4.0
+    VERSION 0.9.0
     LANGUAGES CXX
 )
 
@@ -162,6 +162,11 @@ pybind11_add_module(
 
 target_link_libraries(zerotrust_fl_cpp PRIVATE zerotrust_aggregation_core)
 target_compile_features(zerotrust_fl_cpp PRIVATE cxx_std_20)
+target_compile_definitions(
+    zerotrust_fl_cpp
+    PRIVATE
+    ZTFL_VERSION="${PROJECT_VERSION}"
+)
 
 if(MSVC)
     target_compile_options(
