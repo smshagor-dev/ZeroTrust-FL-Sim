@@ -45,6 +45,30 @@ The report should include enough information to reproduce material findings:
 
 Never attach real credentials, private keys, production certificates, personal data, or unrelated sensitive information.
 
+## Deterministic reviewer handoff bundle
+
+A maintainer can prepare a commit-pinned evidence pack without editing the evidence by hand:
+
+```bash
+python scripts/prepare_security_review_bundle.py \
+  --output-dir /tmp/ztfl-review-bundle \
+  --archive /tmp/ztfl-review-bundle.tar.gz
+```
+
+For an agreed review baseline, check out that exact commit first. `--commit <40-character-sha>` is an optional assertion and must exactly match the checked-out `git HEAD`; it cannot relabel a different tree. The generator also refuses to run when tracked files are modified, so the bundle cannot claim a clean commit while packaging local tracked changes.
+
+The generated bundle contains:
+
+- `REVIEW_BASELINE.json` with the exact reviewed SHA, supported-profile declaration, included evidence paths, and the external attestation fields that remain mandatory;
+- `REVIEW_REPORT_TEMPLATE.md` for the independent reviewer to complete;
+- the security/release documentation and workflow definitions needed to understand the reviewed controls and claims;
+- `SHA256SUMS` covering every evidence file in the bundle;
+- a deterministic `.tar.gz` archive with normalized archive metadata.
+
+The bundle generator fails closed when required evidence is missing, the checkout is not clean for tracked files, the supplied commit does not exactly match `git HEAD`, or an unsafe output path would overwrite unrelated content. Re-running it from the same source tree and commit produces byte-identical archive content.
+
+The archive is only a repository-authored handoff mechanism. It does not establish reviewer independence, validate findings, close issue #70, or replace a final externally authored report/reference.
+
 ## Finding record
 
 For each finding, record:
