@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 import zerotrust_fl
-
+import zerotrust_fl_cpp
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_VERSION = "0.9.0"
@@ -28,6 +28,7 @@ def _read(path: str) -> str:
 
 def test_release_version_metadata_is_aligned() -> None:
     assert zerotrust_fl.__version__ == RELEASE_VERSION
+    assert zerotrust_fl_cpp.__version__ == RELEASE_VERSION
     assert re.search(
         rf'\bversion="{re.escape(RELEASE_VERSION)}"',
         _read("setup.py"),
