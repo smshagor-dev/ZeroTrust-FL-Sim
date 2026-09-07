@@ -177,14 +177,14 @@ func main() {
 			os.Exit(1)
 		}
 		defer stateStore.Close()
-		service, err = coordinator.NewDurableServiceWithExperiment(registry, serviceConfig, stateStore, experimentConfig)
+		service, err = coordinator.NewDurableServiceWithIdentity(registry, serviceConfig, stateStore, experimentConfig, *modelID)
 	case *stateFile != "":
 		stateStore, storeErr := coordinator.NewFileStateStore(*stateFile)
 		if storeErr != nil {
 			logger.Error("configure filesystem coordinator state store", "error", storeErr)
 			os.Exit(1)
 		}
-		service, err = coordinator.NewDurableServiceWithExperiment(registry, serviceConfig, stateStore, experimentConfig)
+		service, err = coordinator.NewDurableServiceWithIdentity(registry, serviceConfig, stateStore, experimentConfig, *modelID)
 		stateBackend = "filesystem"
 	default:
 		service, err = coordinator.NewService(registry, serviceConfig)
