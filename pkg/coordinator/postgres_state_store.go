@@ -129,7 +129,9 @@ func (s *PostgresStateStore) Load(ctx context.Context) (StateSnapshot, error) {
 	if err != nil {
 		return StateSnapshot{}, fmt.Errorf("load PostgreSQL coordinator state: %w", err)
 	}
-	if stateSchemaVersion != legacyCoordinatorStateSchemaVersion && stateSchemaVersion != coordinatorStateSchemaVersion {
+	if stateSchemaVersion != legacyCoordinatorStateSchemaVersion &&
+		stateSchemaVersion != previousCoordinatorStateSchemaVersion &&
+		stateSchemaVersion != coordinatorStateSchemaVersion {
 		return StateSnapshot{}, fmt.Errorf("unsupported coordinator state schema version %d", stateSchemaVersion)
 	}
 	if len(modelBytes) == 0 {
@@ -425,6 +427,14 @@ func loadPostgresMigrations() ([]postgresMigration, error) {
 		}
 	}
 	return migrations, nil
+}
+
+func marshalPostgresStateArray(value any, field string) ([]byte, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode PostgreSQL %s: %w", field, err)
+	}
+	return encoded, nil
 }
 
 func decodePostgresJSON(data []byte, target any, field string) error {
