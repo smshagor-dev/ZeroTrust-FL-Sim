@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "target_version": "1.0.0",
+  "supported_profile": {
+    "aggregation_backends": [
+      "pytorch-cpu",
+      "native-cpp-cpu"
+    ],
+    "cuda_status": "experimental-unvalidated",
+    "cuda_evidence_url": null
+  },
+  "hard_gates": {
+    "branch_protection": {
+      "issue": 37,
+      "satisfied": false,
+      "evidence_url": null
+    },
+    "independent_security_assessment": {
+      "issue": 70,
+      "satisfied": false,
+      "evidence_url": null,
+      "reviewed_commit": null
+    },
+    "openssf_best_practices": {
+      "issue": 73,
+      "satisfied": false,
+      "evidence_url": null
+    }
+  }
+}
