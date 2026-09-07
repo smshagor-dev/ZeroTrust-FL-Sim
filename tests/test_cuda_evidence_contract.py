@@ -5,7 +5,6 @@ import torch
 
 from scripts.capture_cuda_parity_evidence import capture
 
-
 COMMIT = "b" * 40
 
 
