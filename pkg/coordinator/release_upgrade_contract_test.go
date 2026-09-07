@@ -6,8 +6,11 @@ func TestReleaseStateSchemaUpgradeWindowIsExplicit(t *testing.T) {
 	if legacyCoordinatorStateSchemaVersion != 1 {
 		t.Fatalf("legacy coordinator state schema = %d, want 1", legacyCoordinatorStateSchemaVersion)
 	}
-	if coordinatorStateSchemaVersion != 2 {
-		t.Fatalf("current coordinator state schema = %d, want 2", coordinatorStateSchemaVersion)
+	if previousCoordinatorStateSchemaVersion != 2 {
+		t.Fatalf("previous coordinator state schema = %d, want 2", previousCoordinatorStateSchemaVersion)
+	}
+	if coordinatorStateSchemaVersion != 3 {
+		t.Fatalf("current coordinator state schema = %d, want 3", coordinatorStateSchemaVersion)
 	}
 }
 
