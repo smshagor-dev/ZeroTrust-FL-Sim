@@ -239,13 +239,19 @@ python - "$BENCHMARK_DIR/benchmark-manifest.json" "$COMMIT_SHA" <<'PY'
 import hashlib
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+expected_release_version = project["project"]["version"]
 if manifest.get("schema_version") != 1:
     raise SystemExit("unexpected benchmark manifest schema")
-if manifest.get("release_version") != "0.9.0":
-    raise SystemExit("benchmark manifest release version mismatch")
+if manifest.get("release_version") != expected_release_version:
+    raise SystemExit(
+        "benchmark manifest release version mismatch: "
+        f"expected {expected_release_version}, got {manifest.get('release_version')!r}"
+    )
 if manifest.get("commit_sha") != sys.argv[2]:
     raise SystemExit("benchmark manifest commit mismatch")
 benchmark = manifest.get("benchmark")
