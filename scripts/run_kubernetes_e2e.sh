@@ -235,16 +235,23 @@ docker run --rm \
   --sections aggregation network convergence \
   --output-dir /app/benchmarks/results
 
-python - "$BENCHMARK_DIR/benchmark-manifest.json" "$COMMIT_SHA" <<'PY'
+EXPECTED_RELEASE_VERSION="$(docker run --rm \
+  --entrypoint python \
+  "$WORKER_IMAGE" \
+  -c 'import zerotrust_fl; print(zerotrust_fl.__version__)')"
+if [[ ! "$EXPECTED_RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  echo "worker image returned invalid release version: ${EXPECTED_RELEASE_VERSION}" >&2
+  exit 1
+fi
+
+python - "$BENCHMARK_DIR/benchmark-manifest.json" "$COMMIT_SHA" "$EXPECTED_RELEASE_VERSION" <<'PY'
 import hashlib
 import json
 import sys
-import tomllib
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-expected_release_version = project["project"]["version"]
+expected_release_version = sys.argv[3]
 if manifest.get("schema_version") != 1:
     raise SystemExit("unexpected benchmark manifest schema")
 if manifest.get("release_version") != expected_release_version:
