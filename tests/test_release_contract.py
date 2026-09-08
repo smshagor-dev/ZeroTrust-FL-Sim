@@ -7,7 +7,7 @@ import zerotrust_fl
 import zerotrust_fl_cpp
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "0.9.0"
+RELEASE_VERSION = "1.0.0"
 EXPECTED_PUBLIC_API = {
     "SDK_API_VERSION",
     "Enrollment",
@@ -44,6 +44,6 @@ def test_release_version_metadata_is_aligned() -> None:
     assert f'version: "{RELEASE_VERSION}"' in _read("CITATION.cff")
 
 
-def test_public_sdk_surface_is_frozen_for_v09() -> None:
+def test_public_sdk_surface_is_frozen_for_v1() -> None:
     assert zerotrust_fl.SDK_API_VERSION == "1"
     assert set(zerotrust_fl.__all__) == EXPECTED_PUBLIC_API

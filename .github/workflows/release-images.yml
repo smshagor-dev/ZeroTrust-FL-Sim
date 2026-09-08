@@ -51,20 +51,34 @@ jobs:
               exit 1
             fi
           done
-      - name: Validate live v1 production blocker states
+      - name: Validate live v1 assurance dispositions
         if: github.ref_name == 'v1.0.0'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for issue in 37 70 73; do
+          python - <<'PY' > /tmp/v1-assurance-gates.tsv
+          import json
+          from pathlib import Path
+
+          evidence = json.loads(Path("release/v1.0-evidence.json").read_text(encoding="utf-8"))
+          for gate in evidence["hard_gates"].values():
+              if gate["satisfied"] and not gate["waived"]:
+                  expected_reason = "completed"
+              elif gate["waived"] and not gate["satisfied"]:
+                  expected_reason = "not_planned"
+              else:
+                  raise SystemExit(f"invalid assurance disposition for issue #{gate['issue']}")
+              print(f"{gate['issue']}\t{expected_reason}")
+          PY
+          while IFS=$'\t' read -r issue expected_reason; do
             state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq .state)"
             reason="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state_reason // ""')"
-            if [ "$state" != closed ] || [ "$reason" != completed ]; then
-              echo "v1.0.0 blocker #${issue} is not closed as completed: state=${state} reason=${reason}" >&2
+            if [ "$state" != closed ] || [ "$reason" != "$expected_reason" ]; then
+              echo "v1.0.0 assurance issue #${issue} has wrong live disposition: state=${state} reason=${reason} expected=${expected_reason}" >&2
               exit 1
             fi
-          done
+          done < /tmp/v1-assurance-gates.tsv
       - name: Authenticate to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Configure buildx

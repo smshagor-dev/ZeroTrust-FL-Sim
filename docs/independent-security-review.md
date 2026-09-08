@@ -1,6 +1,6 @@
 # Independent Security Review Evidence
 
-Issue #70 is the production gate for an external security review or an independently reproduced security assessment. Repository-owned CI, fuzzing, documentation, and self-review do not satisfy this gate by themselves.
+Issue #70 tracks the external security-review assurance for the production release. Repository-owned CI, fuzzing, documentation, and self-review do not satisfy an independent assessment by themselves.
 
 ## Required review identity
 
@@ -79,7 +79,7 @@ The generated bundle contains:
 
 The bundle generator fails closed when required evidence is missing, the checkout is not clean for tracked files, the supplied commit does not exactly match `git HEAD`, or an unsafe output path would overwrite unrelated content. Re-running it from the same source tree and commit produces byte-identical archive content.
 
-The local generator and GitHub Actions workflow are repository-authored handoff mechanisms only. They do not establish reviewer independence, validate findings, close issue #70, or replace a final externally authored report/reference.
+The local generator and GitHub Actions workflow are repository-authored handoff mechanisms only. They do not establish reviewer independence, validate findings, or replace a final externally authored report/reference.
 
 ## Finding record
 
@@ -95,9 +95,9 @@ For each finding, record:
 - regression test or verification evidence;
 - final disposition: open, fixed, mitigated, accepted, or not applicable.
 
-## v1.0.0 completion rule
+## Evidence-backed completion rule
 
-Before the independent-review gate can be closed:
+To mark the independent-review assurance as satisfied:
 
 - the review must identify the exact commit/tag assessed;
 - all Critical and High findings must be fixed and verified, or explicitly accepted with a documented release-blocking risk decision;
@@ -106,3 +106,9 @@ Before the independent-review gate can be closed:
 - the release candidate must not silently expand its security claims beyond the reviewed scope.
 
 A self-authored checklist marked complete is not sufficient evidence.
+
+## v1.0.0 owner waiver
+
+For v1.0.0 the repository owner explicitly chose to proceed before an independent assessment was completed. That decision is represented as `satisfied: false` and `waived: true` in `release/v1.0-evidence.json`; it is not an assessment result. Issue #70 may therefore be closed with a `not_planned` release-gate disposition under the owner-waiver policy in `docs/v1-production-release-contract.md`, but the release must continue to state that it is not independently security assessed, audited, or certified.
+
+An owner waiver does not prevent a later independent review. When one is completed, the evidence manifest and release documentation should be updated without rewriting the historical v1.0.0 release claim.

@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use ZeroTrust-FL-Sim in research, please cite the software and the exact version or commit used."
 title: "ZeroTrust-FL-Sim"
 type: software
-version: "0.9.0"
+version: "1.0.0"
 authors:
   - family-names: "Shagor"
     given-names: "Shahanur Islam"

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "target_version": "1.0.0",
   "supported_profile": {
     "aggregation_backends": [
@@ -13,18 +13,42 @@
     "branch_protection": {
       "issue": 37,
       "satisfied": false,
-      "evidence_url": null
+      "waived": true,
+      "evidence_url": null,
+      "waiver": {
+        "accepted_by": "smshagor-dev",
+        "accepted_on": "2026-09-08",
+        "issue_url": "https://github.com/smshagor-dev/ZeroTrust-FL-Sim/issues/37",
+        "reason": "The repository owner directed v1.0.0 publication before GitHub branch-protection administration could be completed.",
+        "limitations": "GitHub does not technically enforce required checks, force-push blocking, or branch deletion protection on main at release time. The release candidate is still required to pass the full PR and exact-commit CI gates before tagging."
+      }
     },
     "independent_security_assessment": {
       "issue": 70,
       "satisfied": false,
+      "waived": true,
       "evidence_url": null,
-      "reviewed_commit": null
+      "reviewed_commit": null,
+      "waiver": {
+        "accepted_by": "smshagor-dev",
+        "accepted_on": "2026-09-08",
+        "issue_url": "https://github.com/smshagor-dev/ZeroTrust-FL-Sim/issues/70",
+        "reason": "The repository owner directed v1.0.0 publication before a genuinely independent security assessment could be completed.",
+        "limitations": "v1.0.0 has extensive repository-owned CI, SAST, dependency, secret, fuzz, container, recovery, and Kubernetes evidence, but it must not be represented as independently security assessed, audited, or certified."
+      }
     },
     "openssf_best_practices": {
       "issue": 73,
       "satisfied": false,
-      "evidence_url": null
+      "waived": true,
+      "evidence_url": null,
+      "waiver": {
+        "accepted_by": "smshagor-dev",
+        "accepted_on": "2026-09-08",
+        "issue_url": "https://github.com/smshagor-dev/ZeroTrust-FL-Sim/issues/73",
+        "reason": "The repository owner directed v1.0.0 publication before creation of the external OpenSSF Best Practices project/application record.",
+        "limitations": "OpenSSF Scorecard and repository security controls exist, but v1.0.0 does not claim an OpenSSF Best Practices badge or completed Best Practices application."
+      }
     }
   }
 }

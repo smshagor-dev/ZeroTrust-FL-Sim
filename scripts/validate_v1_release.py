@@ -19,7 +19,9 @@ EXPECTED_GATES = {
     "openssf_best_practices": 73,
 }
 EXPECTED_CPU_BACKENDS = ["pytorch-cpu", "native-cpp-cpu"]
+WAIVER_APPROVER = "smshagor-dev"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TAG_RE = re.compile(r"^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)$")
 
 
@@ -71,9 +73,31 @@ def _valid_https_url(value: object) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc)
 
 
+def _validate_waiver(name: str, gate: dict[str, Any], issue_number: int) -> None:
+    waiver = gate.get("waiver")
+    if not isinstance(waiver, dict):
+        raise ReleaseGateError(f"waived hard gate {name} requires a waiver object")
+    if waiver.get("accepted_by") != WAIVER_APPROVER:
+        raise ReleaseGateError(
+            f"waived hard gate {name} must be accepted by repository owner {WAIVER_APPROVER}"
+        )
+    accepted_on = waiver.get("accepted_on")
+    if not isinstance(accepted_on, str) or DATE_RE.fullmatch(accepted_on) is None:
+        raise ReleaseGateError(f"waived hard gate {name} requires accepted_on in YYYY-MM-DD form")
+    expected_issue_url = f"https://github.com/smshagor-dev/ZeroTrust-FL-Sim/issues/{issue_number}"
+    if waiver.get("issue_url") != expected_issue_url:
+        raise ReleaseGateError(f"waived hard gate {name} must reference {expected_issue_url}")
+    for field in ("reason", "limitations"):
+        value = waiver.get(field)
+        if not isinstance(value, str) or len(value.strip()) < 20:
+            raise ReleaseGateError(
+                f"waived hard gate {name} requires a substantive {field} disclosure"
+            )
+
+
 def validate_evidence_schema(evidence: dict[str, Any]) -> None:
-    if evidence.get("schema_version") != 1:
-        raise ReleaseGateError("v1 evidence schema_version must be 1")
+    if evidence.get("schema_version") != 2:
+        raise ReleaseGateError("v1 evidence schema_version must be 2")
     if evidence.get("target_version") != TARGET_VERSION:
         raise ReleaseGateError(f"v1 evidence target_version must be {TARGET_VERSION}")
 
@@ -95,25 +119,45 @@ def validate_evidence_schema(evidence: dict[str, Any]) -> None:
 
     gates = evidence.get("hard_gates")
     if not isinstance(gates, dict) or set(gates) != set(EXPECTED_GATES):
-        raise ReleaseGateError("hard_gates must contain exactly the three canonical v1 production gates")
+        raise ReleaseGateError("hard_gates must contain exactly the three canonical v1 assurance gates")
     for name, issue_number in EXPECTED_GATES.items():
         gate = gates.get(name)
         if not isinstance(gate, dict):
             raise ReleaseGateError(f"hard gate {name} must be an object")
         if gate.get("issue") != issue_number:
             raise ReleaseGateError(f"hard gate {name} must reference issue #{issue_number}")
-        if not isinstance(gate.get("satisfied"), bool):
+        satisfied = gate.get("satisfied")
+        waived = gate.get("waived")
+        if not isinstance(satisfied, bool):
             raise ReleaseGateError(f"hard gate {name} satisfied must be boolean")
-        if gate["satisfied"] and not _valid_https_url(gate.get("evidence_url")):
-            raise ReleaseGateError(f"hard gate {name} requires an HTTPS evidence URL when satisfied")
+        if not isinstance(waived, bool):
+            raise ReleaseGateError(f"hard gate {name} waived must be boolean")
+        if satisfied == waived:
+            raise ReleaseGateError(
+                f"hard gate {name} must be exactly one of satisfied or explicitly waived"
+            )
+        if satisfied:
+            if not _valid_https_url(gate.get("evidence_url")):
+                raise ReleaseGateError(
+                    f"hard gate {name} requires an HTTPS evidence URL when satisfied"
+                )
+            if gate.get("waiver") is not None:
+                raise ReleaseGateError(f"satisfied hard gate {name} must not carry a waiver")
+        else:
+            if gate.get("evidence_url") is not None:
+                raise ReleaseGateError(f"waived hard gate {name} must not claim evidence satisfaction")
+            _validate_waiver(name, gate, issue_number)
 
     security = gates["independent_security_assessment"]
     reviewed_commit = security.get("reviewed_commit")
-    if security["satisfied"] and not (
-        isinstance(reviewed_commit, str) and SHA_RE.fullmatch(reviewed_commit)
-    ):
+    if security["satisfied"]:
+        if not (isinstance(reviewed_commit, str) and SHA_RE.fullmatch(reviewed_commit)):
+            raise ReleaseGateError(
+                "independent security assessment requires the reviewed 40-character commit SHA"
+            )
+    elif reviewed_commit is not None:
         raise ReleaseGateError(
-            "independent security assessment requires the reviewed 40-character commit SHA"
+            "waived independent security assessment must not claim a reviewed commit"
         )
 
 
@@ -123,13 +167,10 @@ def validate_repository_contract(root: Path = ROOT) -> None:
 
     versions = metadata_versions(root)
     unique_versions = set(versions.values())
-    if len(unique_versions) != 1:
+    if unique_versions != {TARGET_VERSION}:
         rendered = ", ".join(f"{name}={version}" for name, version in versions.items())
-        raise ReleaseGateError(f"release metadata versions are not aligned: {rendered}")
-    current_version = next(iter(unique_versions))
-    if current_version not in {"0.9.0", TARGET_VERSION}:
         raise ReleaseGateError(
-            f"v1 closure branch must remain at 0.9.0 until final bump or be exactly {TARGET_VERSION}"
+            f"final v1 release metadata must be aligned at {TARGET_VERSION}: {rendered}"
         )
 
     workflow = _read(root, RELEASE_WORKFLOW_PATH)
@@ -142,14 +183,18 @@ def validate_repository_contract(root: Path = ROOT) -> None:
     if workflow.index(gate_marker) > workflow.index(auth_marker):
         raise ReleaseGateError("v1 publication gate must execute before registry authentication")
     if "issues: read" not in workflow:
-        raise ReleaseGateError("release workflow must have issues: read permission for live blocker checks")
+        raise ReleaseGateError("release workflow must have issues: read permission for live assurance checks")
     if "gh api" not in workflow:
-        raise ReleaseGateError("release workflow must verify live GitHub blocker issue states")
+        raise ReleaseGateError("release workflow must verify live GitHub assurance issue states")
+    if "not_planned" not in workflow:
+        raise ReleaseGateError("release workflow must distinguish waived assurance gates from completed gates")
 
     notes = _read(root, RELEASE_NOTES_PATH)
     required_note_phrases = (
         "CPU/PyTorch/native C++",
         "CUDA",
+        "Owner-authorized assurance exceptions",
+        "not independently security assessed",
         "#37",
         "#70",
         "#73",
@@ -193,15 +238,22 @@ def validate_publish_gate(tag: str, commit: str, root: Path = ROOT) -> None:
         raise ReleaseGateError(
             f"stable major-version publication is locked to v{TARGET_VERSION}; update the reviewed contract first"
         )
+    if SHA_RE.fullmatch(commit) is None:
+        raise ReleaseGateError("release commit must be a full lowercase 40-character SHA")
 
     evidence = load_evidence(root)
     gates = evidence["hard_gates"]
-    incomplete = [name for name, gate in gates.items() if not gate["satisfied"]]
+    incomplete = [
+        name
+        for name, gate in gates.items()
+        if not gate["satisfied"] and not gate["waived"]
+    ]
     if incomplete:
-        raise ReleaseGateError("v1 hard production gates are incomplete: " + ", ".join(incomplete))
+        raise ReleaseGateError("v1 assurance gates lack disposition: " + ", ".join(incomplete))
 
     security = gates["independent_security_assessment"]
-    _assert_reviewed_commit_is_ancestor(root, security["reviewed_commit"], commit)
+    if security["satisfied"]:
+        _assert_reviewed_commit_is_ancestor(root, security["reviewed_commit"], commit)
 
     changelog = _read(root, "CHANGELOG.md")
     if re.search(rf"^## \[{re.escape(TARGET_VERSION)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.MULTILINE) is None:

@@ -62,7 +62,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="zerotrust-fl-sim",
-    version="0.9.0",
+    version="1.0.0",
     description="Zero-trust federated learning simulation runtime",
     author="Shahanur Islam Shagor",
     url="https://github.com/smshagor-dev/ZeroTrust-FL-Sim",
@@ -75,7 +75,7 @@ setup(
     license="Apache-2.0",
     license_files=["LICENSE"],
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: Apache Software License",
