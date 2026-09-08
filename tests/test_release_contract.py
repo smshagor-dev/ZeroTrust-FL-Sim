@@ -44,6 +44,14 @@ def test_release_version_metadata_is_aligned() -> None:
     assert f'version: "{RELEASE_VERSION}"' in _read("CITATION.cff")
 
 
+def test_kubernetes_release_evidence_tracks_project_version() -> None:
+    script = _read("scripts/run_kubernetes_e2e.sh")
+    assert 'project = tomllib.loads(Path("pyproject.toml")' in script
+    assert 'expected_release_version = project["project"]["version"]' in script
+    assert 'manifest.get("release_version") != expected_release_version' in script
+    assert 'manifest.get("release_version") != "0.9.0"' not in script
+
+
 def test_public_sdk_surface_is_frozen_for_v1() -> None:
     assert zerotrust_fl.SDK_API_VERSION == "1"
     assert set(zerotrust_fl.__all__) == EXPECTED_PUBLIC_API
