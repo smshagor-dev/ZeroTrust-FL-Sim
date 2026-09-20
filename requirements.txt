@@ -28,7 +28,7 @@ prometheus-client>=0.22,<1
 
 # Native extension
 pybind11==3.1.0
-cmake>=3.24,<5
+cmake>=4.4.3,<5
 
 # Testing
 pytest>=8,<10
