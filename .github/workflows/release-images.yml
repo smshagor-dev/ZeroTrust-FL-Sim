@@ -123,7 +123,7 @@ jobs:
             "$GITHUB_SHA"
           printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
       - name: Generate source SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: spdx-json
@@ -142,7 +142,7 @@ jobs:
           subject-path: ${{ steps.source.outputs.archive }}
 
       - name: Generate coordinator SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ steps.build.outputs.coordinator_image }}@${{ steps.build.outputs.coordinator_digest }}
           format: spdx-json
@@ -151,7 +151,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate worker SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ steps.build.outputs.worker_image }}@${{ steps.build.outputs.worker_digest }}
           format: spdx-json
@@ -160,7 +160,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: Generate recovery SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ steps.build.outputs.recovery_image }}@${{ steps.build.outputs.recovery_digest }}
           format: spdx-json
