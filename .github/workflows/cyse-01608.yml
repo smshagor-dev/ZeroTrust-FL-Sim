@@ -115,7 +115,7 @@ jobs:
           PY
       - name: Upload independent results (not original manuscript data)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cyse-01608-independent-reference
           path: |
