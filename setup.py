@@ -102,7 +102,7 @@ setup(
     ],
     extras_require={
         "vision": ["torchvision==0.29.0"],
-        "proto": ["grpcio-tools==1.83.1"],
+        "proto": ["grpcio-tools==1.85.1"],
         "benchmark": ["cryptography>=50,<51", "matplotlib>=3.10,<4"],
         "tenseal": ["tenseal==0.3.17"],
     },

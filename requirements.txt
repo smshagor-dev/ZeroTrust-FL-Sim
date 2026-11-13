@@ -5,7 +5,7 @@ numpy>=2.3,<3.0
 
 # RPC and Protocol Buffers
 grpcio==1.83.1
-grpcio-tools==1.83.1
+grpcio-tools==1.85.1
 protobuf>=7.35,<8.0
 
 # Configuration and validation
