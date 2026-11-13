@@ -89,7 +89,7 @@ setup(
     package_dir={"": "fl"},
     packages=find_packages(where="fl"),
     install_requires=[
-        "torch==2.14.0",
+        "torch==2.15.0",
         "numpy>=2.3,<3.0",
         "grpcio==1.83.1",
         "protobuf>=7.35,<8.0",

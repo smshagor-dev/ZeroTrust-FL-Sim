@@ -1,5 +1,5 @@
 # Machine learning
-torch==2.14.0
+torch==2.15.0
 torchvision==0.29.0
 numpy>=2.3,<3.0
 
