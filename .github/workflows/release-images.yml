@@ -107,7 +107,7 @@ jobs:
             printf '%s_digest=%s\n' "${component}" "${digest}" >> "$GITHUB_OUTPUT"
           done
       - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2 / Cosign 3.0.6
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.2 / Cosign 3.0.6
 
       - name: Build deterministic source release archive
         id: source
