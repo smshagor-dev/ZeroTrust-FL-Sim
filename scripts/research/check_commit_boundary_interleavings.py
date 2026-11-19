@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Minimal, exhaustive FL update/revocation ordering counterexample.
 
 This is an abstract two-operation model. It is NOT a proof about a real FL
