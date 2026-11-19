@@ -1,0 +1,152 @@
+name: CYSE-01608 Pre-registered P1 30-Seed Confirmatory Study
+
+on:
+  push:
+    branches: [research/cyse-01608-reproducibility]
+    paths:
+      - "research/cyse_01608/CONFIRMATORY_PROTOCOL.md"
+      - "research/cyse_01608/confirmatory_analysis.py"
+      - "research/cyse_01608/scientific_stability_gate.py"
+      - "research/cyse_01608/P1_EVIDENCE_FREEZE.json"
+      - "research/cyse_01608/tests/test_scientific_stability_gate.py"
+      - "research/cyse_01608/tests/test_confirmatory_analysis.py"
+      - ".github/workflows/cyse-confirmatory-p1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrity-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r research/cyse_01608/requirements.txt
+      - run: python -m pytest -q research/cyse_01608/tests/test_confirmatory_analysis.py research/cyse_01608/tests/test_scientific_stability_gate.py research/cyse_01608/tests/test_original_supplement_audit.py
+
+  source-comparison:
+    needs: integrity-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {dataset: UNSW-NB15, slug: unsw}
+          - {dataset: NSL-KDD, slug: nsl}
+          - {dataset: CICIoT2023, slug: ciciot}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r research/cyse_01608/requirements.txt
+      - name: Fetch pinned source distributions, without redistributing raw bytes
+        env:
+          SLUG: ${{ matrix.slug }}
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/source
+          if [[ "$SLUG" == "ciciot" ]]; then
+            python -m pip install "datasets==4.4.1"
+            python research/cyse_01608/modern_iot_data.py --output data/source --revision ae15e93
+          elif [[ "$SLUG" == "unsw" ]]; then
+            base="https://raw.githubusercontent.com/Nir-J/ML-Projects/44bbd02b9e70f74dd915218d5eb702f125341ffc/UNSW-Network_Packet_Classification"
+            curl -fL --retry 3 -o data/source/train "$base/UNSW_NB15_training-set.csv"
+            curl -fL --retry 3 -o data/source/test "$base/UNSW_NB15_testing-set.csv"
+          else
+            base="https://raw.githubusercontent.com/Jehuty4949/NSL_KDD/27bbbdf5c5cccf9970b8b6037a0f19dc09c5a0a9"
+            curl -fL --retry 3 -o data/source/train "$base/KDDTrain%2B.txt"
+            curl -fL --retry 3 -o data/source/test "$base/KDDTest%2B.txt"
+          fi
+      - name: Evaluate exact pre-specified NEW 30 seed grid
+        env:
+          DATASET: ${{ matrix.dataset }}
+          SLUG: ${{ matrix.slug }}
+        run: |
+          if [[ "$SLUG" == "ciciot" ]]; then
+            t="data/source/train.csv"; v="data/source/validation.csv"
+          else
+            t="data/source/train"; v="data/source/test"
+          fi
+          python research/cyse_01608/defense_benchmark.py \
+            --dataset "$DATASET" --train "$t" --test "$v" \
+            --output evidence/confirmatory \
+            --methods multi_krum fltrust \
+            --privacy clip_only dp_1 --policies compliant bypass \
+            --attacks sign_flip \
+            --seeds $(seq 101 130) \
+            --rounds 20 --train-limit 6000 --test-limit 3000 \
+            --trusted-root-fraction 0.05
+      - name: Recompute paired primary J and exact one-sided sign test
+        run: |
+          python research/cyse_01608/confirmatory_analysis.py \
+            --input-dir evidence/confirmatory \
+            --output-dir evidence/primary_analysis
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("evidence/primary_analysis/source_result.json").read_text())
+          assert r["n_observations"]==30
+          assert r["dataset"] in {"UNSW-NB15","NSL-KDD","CICIoT2023"}
+          print("Source-specific validated 30 paired-seed primary contrasts",r["dataset"])
+          PY
+      - name: Archive input-matched evidence (never raw source dataset rows)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyse-confirmatory-${{ matrix.slug }}
+          path: |
+            evidence/confirmatory/
+            evidence/primary_analysis/
+            data/source/snapshot_manifest.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  three-source-familywise:
+    needs: source-comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Install minimal inference libraries
+        run: python -m pip install -r research/cyse_01608/requirements.txt
+      - name: Fetch ALL three current-run source outputs or fail closed
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: cyse-confirmatory-*
+          path: evidence/source_jobs
+          merge-multiple: false
+      - name: Compute Holm-familywise three-source decision
+        run: |
+          python research/cyse_01608/confirmatory_analysis.py \
+            --output-dir evidence/combined \
+            --source-results \
+            evidence/source_jobs/cyse-confirmatory-unsw/evidence/primary_analysis/source_result.json \
+            evidence/source_jobs/cyse-confirmatory-nsl/evidence/primary_analysis/source_result.json \
+            evidence/source_jobs/cyse-confirmatory-ciciot/evidence/primary_analysis/source_result.json
+      - name: Independent scientific integrity gate on raw results and classification metrics
+        run: |
+          python research/cyse_01608/scientific_stability_gate.py \
+            --unsw evidence/source_jobs/cyse-confirmatory-unsw \
+            --nsl evidence/source_jobs/cyse-confirmatory-nsl \
+            --ciciot evidence/source_jobs/cyse-confirmatory-ciciot \
+            --output evidence/combined \
+            --freeze-file research/cyse_01608/P1_EVIDENCE_FREEZE.json \
+            --published-holm evidence/combined/holm_three_source_confirmatory.json
+      - name: Archive complete three-source hypothesis decision
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyse-confirmatory-p1-three-source-holm
+          path: evidence/combined/
+          if-no-files-found: error
+          retention-days: 30

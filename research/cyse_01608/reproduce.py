@@ -23,13 +23,13 @@ from sklearn.datasets import load_breast_cancer, load_digits
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from robust_baselines import EXTENSION_AGGREGATORS, aggregate_extended
+from robust_baselines import EXTENSION_AGGREGATORS, TRUSTED_ROOT_AGGREGATORS, aggregate_extended
 
 ORDERS = (1.25, 1.5, 1.75, 2., 3., 4., 5., 8., 10., 16., 32., 64.)
 AGGREGATORS = ("mean", "trimmed_mean", "median", "multi_krum")
 PRIVACY_MODES = ("none", "clip_only", "dp_0.5", "dp_1", "dp_2", "dp_4")
 THREATS = ("benign", "sign_flip", "label_flip")
-EXTENSION_THREATS = THREATS + ("alie_oracle",)
+EXTENSION_THREATS = THREATS + ("alie_oracle", "targeted_label_poison", "in_ball_oracle")
 DATASETS = ("breast_cancer", "digits")
 FIELDS = ("dataset", "seed", "partition", "alpha", "aggregator", "privacy_mode",
           "threat", "attacker_compliance", "rounds", "n_clients", "malicious_clients",
@@ -52,6 +52,9 @@ class Config:
     partition: str = "iid"
     alpha: float = 0.3
     attacker_compliance: str = "compliant"
+    trusted_root_fraction: float = 0.0  # 0 preserves submitted design unchanged
+    targeted_class: int = 0  # supplementary target-label manipulation only
+    root_label_poison_fraction: float = 0.0  # supplementary assumed root-trust breach
 
     def __post_init__(self):
         if self.clients < 3 or not 0 <= self.malicious_clients < self.clients:
@@ -64,6 +67,14 @@ class Config:
             raise ValueError("invalid partition/alpha")
         if self.attacker_compliance not in {"compliant", "bypass"}:
             raise ValueError("attacker_compliance must be compliant or bypass")
+        if self.targeted_class < 0:
+            raise ValueError("targeted class must be nonnegative")
+        if not math.isfinite(self.root_label_poison_fraction) or not 0 <= self.root_label_poison_fraction <= 1:
+            raise ValueError("invalid root-label corruption fraction")
+        if self.root_label_poison_fraction > 0 and self.trusted_root_fraction <= 0:
+            raise ValueError("root corruption requires an allocated server-held root")
+        if not 0 <= self.trusted_root_fraction < 0.5:
+            raise ValueError("invalid trusted root allocation")
         if self.trim_each_tail * 2 >= self.clients:
             raise ValueError("trimming would remove all clients")
         if self.clients < 2 * self.malicious_clients + 3:
@@ -160,6 +171,25 @@ def alie_oracle_update(honest_updates: np.ndarray, *, factor: float = 1.5) -> np
     return honest_updates.mean(axis=0) - factor * honest_updates.std(axis=0)
 
 
+def in_ball_oracle_update(honest_updates: np.ndarray, cap: float) -> np.ndarray:
+    """Reversed mean-honest direction WITHIN cap; hypothetical oracle access.
+
+    This malicious update evades any detector based solely on an upper bound
+    on update magnitude. It is not a realistic CKKS-input verifier model.
+    """
+    updates = np.asarray(honest_updates, dtype=np.float64)
+    if (updates.ndim != 2 or updates.shape[0] < 2 or updates.shape[1] < 1
+            or not np.isfinite(updates).all() or not math.isfinite(cap) or cap <= 0):
+        raise ValueError("finite honest-update matrix and positive norm cap needed")
+    center = updates.mean(axis=0)
+    norm = float(np.linalg.norm(center))
+    if not math.isfinite(norm):
+        raise ValueError("honest oracle vector norm invalid")
+    if norm < 1e-14:
+        return np.zeros(updates.shape[1], dtype=np.float64)
+    return -0.5 * cap * center / norm
+
+
 def multi_krum_selected_clients(updates: np.ndarray, config: Config) -> np.ndarray:
     """Return accepted client indices; inclusion is NOT proof of honesty.
 
@@ -196,11 +226,39 @@ def run_case(dataset: str, seed: int, aggregator: str, privacy_mode: str,
              external_task: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int] | None = None,
              include_classification_metrics: bool = False,
              include_selection_diagnostics: bool = False) -> dict:
-    if aggregator not in AGGREGATORS + EXTENSION_AGGREGATORS or privacy_mode not in PRIVACY_MODES or threat not in EXTENSION_THREATS:
+    if aggregator not in AGGREGATORS + EXTENSION_AGGREGATORS + TRUSTED_ROOT_AGGREGATORS or privacy_mode not in PRIVACY_MODES or threat not in EXTENSION_THREATS:
         raise ValueError("invalid experimental condition")
     xtr, ytr, xte, yte, n_classes = (
         load_task(dataset, seed, config) if external_task is None else external_task
     )
+    root_x = root_y = None
+    root_n = 0
+    if config.trusted_root_fraction > 0:
+        # Root samples are TRAINING only and removed from ALL client shards.
+        # This extra trust assumption is NOT part of the original 720-run study.
+        root_n = max(n_classes, int(math.ceil(len(ytr)*config.trusted_root_fraction)))
+        if len(ytr) - root_n < config.clients:
+            raise ValueError("not enough data for disjoint trusted root and clients")
+        row_indices = np.arange(len(ytr))
+        client_idx, root_idx = train_test_split(
+            row_indices, test_size=root_n, stratify=ytr,
+            random_state=seed+6019,
+        )
+        root_x, root_y = xtr[root_idx], ytr[root_idx]
+        if config.root_label_poison_fraction > 0:
+            # Explicit assumed server-root integrity BREACH; deterministic
+            # independent selection, not a network backdoor or active poisoning
+            # of clients. The original experimental path is unchanged.
+            root_y = root_y.copy()
+            count = int(round(len(root_y)*config.root_label_poison_fraction))
+            selected = np.random.default_rng(seed+20771).choice(
+                len(root_y), size=count, replace=False)
+            root_y[selected] = (root_y[selected]+1) % n_classes
+        xtr, ytr = xtr[client_idx], ytr[client_idx]
+    if aggregator == "fltrust" and root_x is None:
+        raise ValueError("FLTrust needs a held-out trusted root set")
+    if threat == "targeted_label_poison" and config.targeted_class >= n_classes:
+        raise ValueError("targeted class outside label space")
     partitions = partition_indices(ytr, seed, config)
     if any(len(ids) == 0 for ids in partitions):
         raise ValueError("client shard cannot be empty")
@@ -217,7 +275,7 @@ def run_case(dataset: str, seed: int, aggregator: str, privacy_mode: str,
     selection_counts = []
     for round_id in range(config.rounds):
         alie_vector = None
-        if threat == "alie_oracle" and malicious:
+        if threat in ("alie_oracle", "in_ball_oracle") and malicious:
             # This branch is independent of the original 720-run matrix.
             # Oracle sees honest PRE-privacy vectors, a worst-case attacker.
             honest_unprotected = []
@@ -231,13 +289,24 @@ def run_case(dataset: str, seed: int, aggregator: str, privacy_mode: str,
                 grad = x.T @ diff / len(y)
                 grad[:-1] += config.l2 * weights[:-1]
                 honest_unprotected.append(-config.learning_rate * grad.reshape(-1))
-            alie_vector = alie_oracle_update(np.stack(honest_unprotected))
+            honest_matrix = np.stack(honest_unprotected)
+            if threat == "alie_oracle":
+                alie_vector = alie_oracle_update(honest_matrix)
+            else:
+                # Strong honest-statistics oracle: a colluding attacker
+                # sets a directionally reversed update INSIDE the cap.
+                # This tests a known limitation of server norm gates.
+                alie_vector = in_ball_oracle_update(honest_matrix, config.clip_norm)
         deltas = []
         for client in range(config.clients):
             x = client_x[client]
             y = client_y[client]
             if threat == "label_flip" and client in malicious:
                 y = (y+1) % n_classes
+            if threat == "targeted_label_poison" and client in malicious:
+                # Explicit malicious label-forgery: all poisoned targets map
+                # to one chosen class. This is NOT a triggered backdoor.
+                y = np.full_like(y, config.targeted_class)
             probs = softmax(x @ weights, axis=1)
             diff = probs.copy()
             diff[np.arange(len(y)), y] -= 1
@@ -246,7 +315,7 @@ def run_case(dataset: str, seed: int, aggregator: str, privacy_mode: str,
             delta = -config.learning_rate * grad.reshape(-1)
             if threat == "sign_flip" and client in malicious:
                 delta = -config.sign_scale * delta
-            if threat == "alie_oracle" and client in malicious:
+            if threat in ("alie_oracle", "in_ball_oracle") and client in malicious:
                 delta = alie_vector.copy()
             bypass = (config.attacker_compliance == "bypass" and
                       threat != "benign" and client in malicious)
@@ -262,10 +331,21 @@ def run_case(dataset: str, seed: int, aggregator: str, privacy_mode: str,
             selection_counts.append(sum(int(client) in malicious for client in selected))
         # The submitted design's 720 cases retain their existing aggregation
         # behavior. RFA and plaintext norm gates are research extensions only.
-        if aggregator in EXTENSION_AGGREGATORS:
+        if aggregator in EXTENSION_AGGREGATORS + TRUSTED_ROOT_AGGREGATORS:
+            trusted_update = None
+            if aggregator == "fltrust":
+                # Client updates and clean-root gradient share the same
+                # optimizer convention. Root is NOT client-private or encrypted.
+                root_prob = softmax(root_x @ weights, axis=1)
+                root_diff = root_prob.copy()
+                root_diff[np.arange(len(root_y)), root_y] -= 1
+                root_grad = root_x.T @ root_diff / len(root_y)
+                root_grad[:-1] += config.l2 * weights[:-1]
+                trusted_update = (-config.learning_rate * root_grad).reshape(-1)
             merged = aggregate_extended(
                 all_updates, aggregator, cap=config.clip_norm,
                 multi_krum_callback=lambda data: aggregate(data, "multi_krum", config),
+                trusted_update=trusted_update,
             )
         else:
             merged = aggregate(all_updates, aggregator, config)
@@ -281,6 +361,9 @@ def run_case(dataset: str, seed: int, aggregator: str, privacy_mode: str,
                 delta=config.delta if sigma else "", clip_norm=config.clip_norm if clipping else "",
                 noise_std=noise_std)
     if include_classification_metrics:
+        if config.trusted_root_fraction > 0:
+            result["trusted_root_rows"] = root_n
+            result["root_label_poison_fraction"] = config.root_label_poison_fraction
         # Only used by external cybersecurity benchmark experiments; adding
         # metrics must not change the original manuscript's CSV schema.
         from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score, recall_score

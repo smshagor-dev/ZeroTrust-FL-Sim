@@ -37,3 +37,18 @@ Subsequent evidence: [NSL-KDD external replication](NSL_KDD_EVIDENCE.md), [two-s
 ## RFA and server-enforced plaintext update-bound extensions (2026-11)
 
 RFA-style and server norm-gated variants are now implemented and benchmarked on two prior historical intrusion sources. [Verified evidence](ROBUST_BASELINES_EVIDENCE.md) finds a conditional negative result: under studied local Gaussian sigma=1 with Byzantine protocol bypass, RFA and plaintext server norm gates remain vulnerable. This is empirical evaluation of known methods, **not itself a new algorithm or proven novelty**. FLTrust (trusted root-data assumption), contemporary DP-compatible defenses, strong adaptive/backdoor attacks, and genuine encrypted input-validity enforcement remain open; the separate [original raw data gate](ORIGINAL_DATA_GATE.md) is implemented but cannot run on missing historical submitted files.
+
+
+## November 2026 additional high-relevance prior-art audit
+
+The following independently located publisher/conference entries further constrain claims of originality:
+
+- Qi, Wang and Huang, **Towards the Robustness of Differentially Private Federated Learning**, AAAI 2024, DOI https://doi.org/10.1609/aaai.v38i18.29967. Demonstrates that DP noise weakens separation of clean and poisoned gradients and introduces Robust-DPFL; this pre-dates the present empirical mechanism explanation.
+- Gu, Li and Xiong, **DP-BREM: Differentially-Private and Byzantine-Robust Federated Learning with Client Momentum**, USENIX Security 2025, https://www.usenix.org/conference/usenixsecurity25/presentation/gu-xiaolan. Contains trusted-server and secure-aggregation variants with formal privacy/robustness analyses.
+- Zhu et al., **BPFLH: Byzantine-Robust Privacy-Preserving Federated Learning for Heterogeneous Data**, IEEE TDSC 2026, DOI https://doi.org/10.1109/TDSC.2026.3661522. Integrates CKKS and Byzantine detection under heterogeneity. It directly prohibits implying the present addition-only CKKS implementation uniquely combines encryption and Byzantine safety.
+- Cao et al., **FLTrust**, NDSS 2021, https://www.ndss-symposium.org/wp-content/uploads/ndss2021_6C-2_24434_paper.pdf. Trusted clean server data and cosine root-norm aggregation are established prior art. The present experiment compares rather than introduces it.
+- Islamov et al., **Byzantine-Robust and Differentially Private Federated Optimization under Weaker Assumptions**, UAI 2026, https://proceedings.mlr.press/v337/islamov26a.html. Explicitly discusses the extra assumptions and formal theory required for new DP-robust algorithms.
+
+**Refined possible contribution:** independently verified *assumption-conditional* comparative evidence on privacy-noise × malicious-client local-protocol bypass × clean server-root access, using three fixed IDS sources, newly reserved seeds, and a strong in-ball oracle sensitivity extension. Distinctive evaluation design is a candidate contribution, **not yet demonstrated first-in-literature novelty** and not an algorithm. Comparisons against published results are not head-to-head equivalence of their full threat models, trust assumptions, network deployments, or training architectures.
+
+**Required citation/novelty gate:** A journal manuscript should cite this competing work and articulate hypothesis, data-split protocol, treatment assumptions and limitations in a concise related-work matrix. Independently established novelty and fair source-code reproducibility of strongest contemporary baselines remain review conditions, not completed guarantees.

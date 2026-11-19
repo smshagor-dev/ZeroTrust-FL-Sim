@@ -1,0 +1,121 @@
+name: CYSE-01608 Trusted Root Integrity Negative Controls
+
+on:
+  push:
+    branches: [research/cyse-01608-reproducibility]
+    paths:
+      - "research/cyse_01608/reproduce.py"
+      - "research/cyse_01608/robust_baselines.py"
+      - "research/cyse_01608/defense_benchmark.py"
+      - "research/cyse_01608/root_integrity_compare.py"
+      - "research/cyse_01608/tests/test_root_integrity_sensitivity.py"
+      - "research/cyse_01608/tests/test_root_integrity_compare.py"
+      - ".github/workflows/cyse-root-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  root-audit-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r research/cyse_01608/requirements.txt
+      - run: python -m pytest -q research/cyse_01608/tests/test_root_integrity_sensitivity.py research/cyse_01608/tests/test_root_integrity_compare.py research/cyse_01608/tests/test_reproduce.py
+
+  source-grid:
+    needs: root-audit-fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {dataset: UNSW-NB15, slug: unsw}
+          - {dataset: NSL-KDD, slug: nsl}
+          - {dataset: CICIoT2023, slug: ciciot}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r research/cyse_01608/requirements.txt
+      - name: Download pinned training and holdout source distributions
+        env:
+          SLUG: ${{ matrix.slug }}
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/source
+          if [[ "$SLUG" == "ciciot" ]]; then
+            python -m pip install "datasets==4.4.1"
+            python research/cyse_01608/modern_iot_data.py --output data/source --revision ae15e93
+          elif [[ "$SLUG" == "unsw" ]]; then
+            base="https://raw.githubusercontent.com/Nir-J/ML-Projects/44bbd02b9e70f74dd915218d5eb702f125341ffc/UNSW-Network_Packet_Classification"
+            curl -fL --retry 3 -o data/source/train "$base/UNSW_NB15_training-set.csv"
+            curl -fL --retry 3 -o data/source/test "$base/UNSW_NB15_testing-set.csv"
+          else
+            base="https://raw.githubusercontent.com/Jehuty4949/NSL_KDD/27bbbdf5c5cccf9970b8b6037a0f19dc09c5a0a9"
+            curl -fL --retry 3 -o data/source/train "$base/KDDTrain%2B.txt"
+            curl -fL --retry 3 -o data/source/test "$base/KDDTest%2B.txt"
+          fi
+      - name: Run clean, half-corrupted and fully-corrupted root negative-control grids
+        env:
+          DATASET: ${{ matrix.dataset }}
+          SLUG: ${{ matrix.slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$SLUG" == "ciciot" ]]; then
+            train=data/source/train.csv; test=data/source/validation.csv
+          else
+            train=data/source/train; test=data/source/test
+          fi
+          for item in "0.0:clean" "0.5:half" "1.0:full"; do
+            IFS=':' read -r level name <<< "$item"
+            python research/cyse_01608/defense_benchmark.py \
+              --dataset "$DATASET" --train "$train" --test "$test" \
+              --output "evidence/root/$name" \
+              --seeds 0 1 2 3 4 --methods multi_krum fltrust \
+              --privacy clip_only dp_1 --policies compliant bypass \
+              --attacks sign_flip --rounds 20 \
+              --train-limit 6000 --test-limit 3000 \
+              --trusted-root-fraction 0.05 --root-label-poison-fraction "$level"
+          done
+      - name: Validate per-level grids plus cross-level causal negative control
+        run: |
+          python research/cyse_01608/root_integrity_compare.py \
+            --clean evidence/root/clean \
+            --half evidence/root/half \
+            --full evidence/root/full \
+            --output evidence/root_audit
+          python - <<'PY'
+          from pathlib import Path
+          import json,csv,hashlib
+          path=Path("evidence/root_audit")
+          m=json.loads((path/"root_integrity_manifest.json").read_text())
+          assert m["n_total_executions"]==240 and m["n_total_rounds"]==4800
+          assert m["distance_only_model_negative_control_passed"]
+          assert m["n_seed_observations"]==60 and m["n_level_contrasts"]==4
+          for file,key in (("root_level_observations.csv","observations_sha256"),
+                           ("root_clean_vs_corrupt.csv","contrasts_sha256")):
+              assert hashlib.sha256((path/file).read_bytes()).hexdigest()==m[key]
+          print("Clean root assumptions and fully breached integrity evaluated; not deployment attacker proof")
+          PY
+      - name: Archive auditable negative-control findings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyse-root-integrity-${{ matrix.slug }}
+          path: |
+            evidence/root/
+            evidence/root_audit/
+            data/source/snapshot_manifest.json
+          if-no-files-found: ignore
+          retention-days: 30

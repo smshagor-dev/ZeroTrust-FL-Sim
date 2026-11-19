@@ -1,0 +1,109 @@
+name: CYSE-01608 In-Ball Oracle Byzantine Threat Validation
+
+on:
+  push:
+    branches: [research/cyse-01608-reproducibility]
+    paths:
+      - "research/cyse_01608/robust_baselines.py"
+      - "research/cyse_01608/reproduce.py"
+      - "research/cyse_01608/defense_benchmark.py"
+      - "research/cyse_01608/tests/test_in_ball_oracle.py"
+      - ".github/workflows/cyse-inball-oracle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r research/cyse_01608/requirements.txt
+      - run: python -m pytest -q research/cyse_01608/tests/test_in_ball_oracle.py research/cyse_01608/tests/test_robust_baselines.py research/cyse_01608/tests/test_reproduce.py
+
+  compare:
+    needs: regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {dataset: UNSW-NB15, slug: unsw}
+          - {dataset: NSL-KDD, slug: nsl}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r research/cyse_01608/requirements.txt
+      - name: Fetch pinned original-split source files
+        env:
+          SLUG: ${{ matrix.slug }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/source
+          if [[ "$SLUG" == "unsw" ]]; then
+            base="https://raw.githubusercontent.com/Nir-J/ML-Projects/44bbd02b9e70f74dd915218d5eb702f125341ffc/UNSW-Network_Packet_Classification"
+            curl -fL --retry 3 -o data/source/train "$base/UNSW_NB15_training-set.csv"
+            curl -fL --retry 3 -o data/source/test "$base/UNSW_NB15_testing-set.csv"
+          else
+            base="https://raw.githubusercontent.com/Jehuty4949/NSL_KDD/27bbbdf5c5cccf9970b8b6037a0f19dc09c5a0a9"
+            curl -fL --retry 3 -o data/source/train "$base/KDDTrain%2B.txt"
+            curl -fL --retry 3 -o data/source/test "$base/KDDTest%2B.txt"
+          fi
+      - name: Execute pre-specified trusted-root FLTrust comparators
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          python research/cyse_01608/defense_benchmark.py \
+            --dataset "$DATASET" \
+            --train data/source/train --test data/source/test \
+            --output evidence/inball \
+            --methods multi_krum fltrust \
+            --privacy clip_only dp_1 --policies compliant bypass \
+            --attacks in_ball_oracle \
+            --seeds 0 1 2 3 4 --rounds 20 \
+            --train-limit 6000 --test-limit 3000 \
+            --trusted-root-fraction 0.05
+      - name: Independently verify full grid, source fingerprints and experiment integrity
+        run: |
+          python research/cyse_01608/attack_sensitivity_validation.py \
+            --input-dir evidence/inball --output-dir evidence/audit --draws 4000
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          base=Path("evidence/inball")
+          manifest=json.loads((base/"baseline_manifest.json").read_text())
+          audit=json.loads(Path("evidence/audit/audit_manifest.json").read_text())
+          assert manifest["executions"]==80
+          assert manifest["federated_rounds"]==1600
+          assert manifest["trusted_root_fraction"]==0.05
+          assert set(manifest["methods"])=={"multi_krum","fltrust"}
+          with (base/"baseline_runs.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==80
+          assert audit["per_seed_effects"]==20 and audit["contrasts"]==6
+          assert {int(r["trusted_root_rows"]) for r in rows}=={300}
+          assert len(manifest["dataset_split_manifests"])==5
+          for source in manifest["dataset_split_manifests"]:
+              assert source["sampled_train"]==6000
+              assert source["sampled_test"]==3000
+          print("Verified root-isolated matched source data; prior art, no CKKS claim")
+          PY
+      - name: Archive reproducible results (do not redistribute third-party raw data)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyse-inball-oracle-${{ matrix.slug }}
+          path: |
+            evidence/inball/
+            evidence/audit/
+          if-no-files-found: ignore
+          retention-days: 30

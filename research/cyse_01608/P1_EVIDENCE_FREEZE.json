@@ -1,0 +1,65 @@
+{
+  "protocol_id": "CYSE-01608-P1-root-trust-vs-distance-selection",
+  "freeze_id": "P1-2026-11-09-semantic-evidence-v2",
+  "source_run_url": "https://github.com/smshagor-dev/ZeroTrust-FL-Sim/actions/runs/42697886948",
+  "significance_scope": "three fixed sources, source-specific 30-seed randomization; no population or cryptographic security inference",
+  "sha256_by_source": {
+    "UNSW-NB15": {
+      "semantic_run_sha256": "e6bf2a23fb50306b022fa3b0bc1aa16468825296dfc3d1dab4ce5d3775ca5475",
+      "semantic_manifest_sha256": "1fb533fb0e7919c4b9ec03d340cc848ae8077030567c5a078b2537e4a69acb88",
+      "semantic_result_sha256": "9095247b4179732199807162f78c5c3ab0337adcae169533762917bea423b979",
+      "pair_sha256": "c15a6ec2a5effb83596dbd2e23f658b516db04dab501df28d2931c1ae65fa91a",
+      "summary_sha256": "8f096981410d56fa877745b60da1bcc1d76fc0ab769855306f4d4eba6dbed323",
+      "seed_J_sha256": "80ffafdafd624f392a7895de4078ef8d70393e267114f0e983a0b01d69c461a1"
+    },
+    "NSL-KDD": {
+      "semantic_run_sha256": "ae4672131d2a0c579683d6cdade35e03744302eb140bcc9d549d31486ed0d8c4",
+      "semantic_manifest_sha256": "4b7d3f8fa2158cf2083a05e8ba1f428b1c458d375f9c5a6f88719b839cdc0285",
+      "semantic_result_sha256": "30f3ba419a0ed915fd32eebd371a6a61667416250bbc43a504a376393ea47d41",
+      "pair_sha256": "de4195a6df95bbfda4bb42f75d65ef8f7357f39888bcbb569c95e18da53c2955",
+      "summary_sha256": "8b35882a10190ab13cc29a91a01f94e2f3e1c70fa8258ea273cfacff61bf2bbc",
+      "seed_J_sha256": "f7803b69f3c014d2190b395d45567b0c5b63ffd580668f22f073d342c6ad7344"
+    },
+    "CICIoT2023": {
+      "semantic_run_sha256": "022745ea8e9f2f56b41d354bb00003813b7476a368dd8e56782c69e001010418",
+      "semantic_manifest_sha256": "184e88e10da20458a2846fe24efcc84880a5a82780db6c70055887ce34a126e4",
+      "semantic_result_sha256": "21d4443d03391ae9dd01d9fb21fd6b65eddd188fdd1e98dd7acbc53f394fee33",
+      "pair_sha256": "a8fd02d9e0205dc32814d1a1664744576669b1dd2074583ac7b877eae88beca9",
+      "summary_sha256": "fcfebda9a01c16d4572edd2cac6dc834f56c8c67010f1bcbc385fe33a12a0613",
+      "seed_J_sha256": "441cb521e9ac3a37261018a2372bf96a8557793e7e34c75986ce561d4ef02207"
+    }
+  },
+  "limitations": [
+    "Frozen artifact bytes are reproducibility anchors, not authenticated publisher originals.",
+    "A scientific method, source, compiler or schema change needs a separately labeled P2 protocol and new evidence; do not silently update this P1 freeze.",
+    "The frozen record cannot certify historical original manuscript provenance or production local DP."
+  ],
+  "archival_exact_bytes_sha256_by_source": {
+    "UNSW-NB15": {
+      "run_sha256": "1ed5e62914dcb0ea7896df15640b7c5b5bb2e4d21b78722565ab9dc6a5b90805",
+      "pair_sha256": "c15a6ec2a5effb83596dbd2e23f658b516db04dab501df28d2931c1ae65fa91a",
+      "summary_sha256": "8f096981410d56fa877745b60da1bcc1d76fc0ab769855306f4d4eba6dbed323",
+      "manifest_sha256": "511063c752ffa049e93905168a832cba9fd8bb436cddfa2ac35ad8998ca622db",
+      "seed_J_sha256": "80ffafdafd624f392a7895de4078ef8d70393e267114f0e983a0b01d69c461a1",
+      "result_sha256": "8d7eb3c159953d98deba25395525a3c8c3220d6d422f3745c8ccfc8eed0f5da0"
+    },
+    "NSL-KDD": {
+      "run_sha256": "6aa082d75c30654868aaee9a2d9fe831e57c4f2ab519f49be5a585054400d979",
+      "pair_sha256": "de4195a6df95bbfda4bb42f75d65ef8f7357f39888bcbb569c95e18da53c2955",
+      "summary_sha256": "8b35882a10190ab13cc29a91a01f94e2f3e1c70fa8258ea273cfacff61bf2bbc",
+      "manifest_sha256": "f1d9c148ee78acd544a617cb3637e2738313467a39b1fe3e060e2d4b43b2008d",
+      "seed_J_sha256": "f7803b69f3c014d2190b395d45567b0c5b63ffd580668f22f073d342c6ad7344",
+      "result_sha256": "853b2f6e4c219cfe37d355469ee18d2b1cbcbca753ed531acc7ae70ecb604ccf"
+    },
+    "CICIoT2023": {
+      "run_sha256": "1baa65f818dac0f951d892d6d9b541183b31fae77dba21d27d2d04526c771252",
+      "pair_sha256": "a8fd02d9e0205dc32814d1a1664744576669b1dd2074583ac7b877eae88beca9",
+      "summary_sha256": "fcfebda9a01c16d4572edd2cac6dc834f56c8c67010f1bcbc385fe33a12a0613",
+      "manifest_sha256": "4b19a1c61e6dbbef60526e26b28d1052643d24ae26c61b7fe0a8eb672a32029d",
+      "seed_J_sha256": "441cb521e9ac3a37261018a2372bf96a8557793e7e34c75986ce561d4ef02207",
+      "result_sha256": "028f2ccced245ae37792c14dacbe9558cb25d4737af03a48bdd6a572de4249d1"
+    }
+  },
+  "freeze_policy": "Strict byte hashes for paired accuracy/F1/BA effects, summary and J_by_seed; deterministic canonical SHA-256 of raw CSV with final_loss rounded to 12 decimal places and of manifests/reports excluding only checksum fields inherited from raw-byte loss drift. All accuracy, classification and seed-level effects remain exact and independently recalculated. Original exact bytes retained for archival comparison, not enforced to remain platform-identical.",
+  "known_drift": "Across two reproducible UNSW-NB15 executions, 102/480 final_loss values differed only in the least significant serialized decimal. All classification, paired, summary and P1 inferential outputs matched exactly. NSL-KDD and CICIoT2023 artifacts were byte-identical."
+}

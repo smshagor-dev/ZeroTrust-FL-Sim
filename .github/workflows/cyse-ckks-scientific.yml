@@ -1,0 +1,96 @@
+name: CYSE-01608 Native CKKS Correctness and Input-Validity Boundary
+
+on:
+  push:
+    branches: [research/cyse-01608-reproducibility]
+    paths:
+      - "research/cyse_01608/ckks_benchmark.py"
+      - "research/cyse_01608/ckks_input_validity_audit.py"
+      - "research/cyse_01608/tests/test_ckks_claim_bounds.py"
+      - "research/cyse_01608/FORMAL_SECURITY_BOUNDARIES.md"
+      - ".github/workflows/cyse-ckks-scientific.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-seal-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install known compiler toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-12 g++-12 git
+      - name: Install native runtime dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+          python -m pip install -r research/cyse_01608/requirements.txt
+      - run: python scripts/generate_python_proto.py
+      - name: Build actual Microsoft SEAL-enabled C++20 extension
+        env:
+          CC: gcc-12
+          CXX: g++-12
+          ZTFL_NATIVE_ARCH: "OFF"
+          ZTFL_ENABLE_OPENMP: "ON"
+          ZTFL_ENABLE_CKKS: "ON"
+          ZTFL_ENABLE_CUDA: "OFF"
+        run: python -m pip install -e .
+      - name: Verify C++ encrypted native path, no mocked CKKS
+        run: |
+          python - <<'PY'
+          import zerotrust_fl_cpp as native
+          assert native.ckks_enabled
+          print("native engine:",native.__version__,native.ckks_enabled)
+          PY
+          python -m pytest -q tests/test_privacy.py research/cyse_01608/tests/test_ckks_claim_bounds.py
+      - name: Twenty-trial native correctness/overhead, 3 dimensions
+        run: |
+          mkdir -p evidence/ckks/1024 evidence/ckks/4096 evidence/ckks/8192
+          for d in 1024 4096 8192; do
+            python research/cyse_01608/ckks_benchmark.py \
+              --trials 20 --clients 15 --dimension "$d" --seed 42 \
+              --output "evidence/ckks/$d/ckks_benchmark.csv"
+          done
+      - name: Demonstrate sum-only per-client clipping cannot be verified
+        run: |
+          python research/cyse_01608/ckks_input_validity_audit.py \
+            --output evidence/ckks/ckks_input_nonidentifiability.json
+      - name: Verify 60 actual native trials and encrypted claim restrictions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv,json,hashlib
+          for dimension in (1024,4096,8192):
+              path=Path("evidence/ckks")/str(dimension)
+              m=json.loads((path/"ckks_manifest.json").read_text())
+              rows=list(csv.DictReader((path/"ckks_benchmark.csv").open()))
+              assert len(rows)==m["summary"]["trials"]==20
+              assert m["configuration"]["dimension"]==dimension
+              assert m["summary"]["max_abs_error"]<1e-5
+              assert m["output_sha256"]==hashlib.sha256((path/"ckks_benchmark.csv").read_bytes()).hexdigest()
+              assert all(r["byzantine_robust"]=="False" and
+                         r["weights_authenticated"]=="False" for r in rows)
+              assert all(float(r["serialized_ciphertext_bytes"])>0 for r in rows)
+          negative=json.loads(Path("evidence/ckks/ckks_input_nonidentifiability.json").read_text())
+          assert negative["bad_case_cap_violations"]==2
+          assert negative["native_ciphertext_additive_correctness"]
+          assert not negative["client_plaintext_validity_proven"]
+          print("60 native trials and negative CKKS input-validity sanity check verified")
+          PY
+      - name: Archive exact ciphertext correctness and limitation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyse-01608-native-ckks-60-trials
+          path: evidence/ckks/
+          if-no-files-found: ignore
+          retention-days: 30
