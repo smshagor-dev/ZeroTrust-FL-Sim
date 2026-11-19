@@ -188,13 +188,24 @@ func TestIEEEFileBackedRevocationUncertainWriteAndRecovery(t *testing.T) {
 				t.Fatalf("ambiguous revocation unexpectedly advanced model round=%d", persisted.Model.GetRoundId())
 			}
 
-			_, err = durable.GetGlobalModel(context.Background(), &flv1.GetGlobalModelRequest{})
+			readReq := &flv1.GetGlobalModelRequest{
+				NodeId: worker.NodeID, RegistrationId: "registration-" + worker.NodeID,
+			}
+			readResponse, readErr := invokeLifecycleRPC(auth, workerCtx, ztsecurity.MethodGetGlobalModel,
+				readReq, func(ctx context.Context, input any) (any, error) {
+					return durable.GetGlobalModel(ctx, input.(*flv1.GetGlobalModelRequest))
+				})
 			if tt.wantFenced {
-				if status.Code(err) != codes.Unavailable {
-					t.Fatalf("fenced coordinator read returned %v, want Unavailable", err)
+				if status.Code(readErr) != codes.Unavailable {
+					t.Fatalf("fenced coordinator read returned %v, want Unavailable", readErr)
 				}
-			} else if status.Code(err) == codes.Unavailable {
-				t.Fatal("coordinator fenced even though durable rollback was confirmed")
+			} else {
+				if readErr != nil {
+					t.Fatalf("legitimate model read after confirmed rollback failed: %v", readErr)
+				}
+				if readResponse.(*flv1.GlobalModel).GetRoundId() != 0 {
+					t.Fatal("confirmed rollback exposed an unexpected committed model round")
+				}
 			}
 			restartedRegistry := ztsecurity.NewRegistrationStore()
 			restarted, err := NewDurableService(restartedRegistry, Config{MinUpdates: 2}, file)
