@@ -167,7 +167,7 @@ func TestIEEEFileBackedRevocationUncertainWriteAndRecovery(t *testing.T) {
 				func(ctx context.Context, input any) (any, error) {
 					return durable.RevokeRegistration(ctx, input.(*flv1.RevokeRegistrationRequest))
 				})
-			if status.Code(err) != codes.Internal || response != nil {
+			if status.Code(err) != codes.Internal || (response != nil && response.(*flv1.RevokeRegistrationResponse) != nil) {
 				t.Fatalf("uncertain revocation must not be acknowledged: response=%v error=%v", response, err)
 			}
 			store.assertFaultPlanConsumed(t)
@@ -237,7 +237,7 @@ func TestIEEEFileBackedAmbiguousModelUpdateAckRejectsReplayAfterRestart(t *testi
 		func(ctx context.Context, input any) (any, error) {
 			return durable.SubmitLocalUpdate(ctx, input.(*flv1.SubmitLocalUpdateRequest))
 		})
-	if response != nil || status.Code(err) != codes.Internal {
+	if status.Code(err) != codes.Internal || (response != nil && response.(*flv1.SubmitLocalUpdateResponse) != nil) {
 		t.Fatalf("ambiguous model update was acknowledged: response=%v error=%v", response, err)
 	}
 	store.assertFaultPlanConsumed(t)
@@ -273,7 +273,7 @@ func TestIEEEFileBackedAmbiguousModelUpdateAckRejectsReplayAfterRestart(t *testi
 		func(ctx context.Context, input any) (any, error) {
 			return recovered.SubmitLocalUpdate(ctx, input.(*flv1.SubmitLocalUpdateRequest))
 		})
-	if response != nil || status.Code(err) != codes.AlreadyExists {
+	if status.Code(err) != codes.AlreadyExists || (response != nil && response.(*flv1.SubmitLocalUpdateResponse) != nil) {
 		t.Fatalf("duplicate after acknowledged-unknown restart: response=%v error=%v; want AlreadyExists", response, err)
 	}
 	finalState, err := file.Load(context.Background())
