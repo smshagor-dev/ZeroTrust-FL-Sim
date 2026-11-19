@@ -116,6 +116,24 @@ jobs:
         run: chmod 0555 scripts/recovery/pg_dump_18_ci.sh scripts/recovery/pg_restore_18_ci.sh
       - name: Test PostgreSQL migrations, S3 artifacts, and audit durability
         run: go test -v ./pkg/coordinator -run 'Test(Postgres|S3ArtifactStore)' -count=1
+      - name: Repeat IEEE P2 PostgreSQL commit-ack uncertainty and replay tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research-artifacts
+          echo "git_sha=${GITHUB_SHA}" > research-artifacts/ieee-p2-postgres-provenance.txt
+          go version >> research-artifacts/ieee-p2-postgres-provenance.txt
+          go test -race -json -count=2 ./pkg/coordinator \
+            -run '^TestPostgresIEEE(RevocationCommitAckAndRecovery|AmbiguousUpdateAckRejectsPostRecoveryReplay)$' \
+            | tee research-artifacts/ieee-p2-postgres-commit-events.jsonl
+      - name: Upload IEEE P2 PostgreSQL research logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ieee-p2-postgres-${{ github.sha }}
+          path: research-artifacts/ieee-p2-postgres-*
+          if-no-files-found: warn
+          retention-days: 90
       - name: Test clean-room disaster recovery and source immutability
         run: go test -v ./pkg/recovery -run 'Test(DisasterRecoveryBackupDestroyRestore|RecoveryBackupDoesNotAutoMigrateSource)' -count=1
       - name: Build pinned recovery image
