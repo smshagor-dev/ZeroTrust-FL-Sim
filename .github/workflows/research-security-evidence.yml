@@ -73,58 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           go test -race -json -count=3 ./pkg/coordinator \
-            -run '^TestIEEE(PendingRevocationDurabilityAndRecovery|DurableUpdateRevocationOrdering)        shell: bash
-        run: |
-          set -euo pipefail
-          go test -run '^$' -bench '^BenchmarkResearchRPCPolicyDecision$' \
-            -benchmem -benchtime=1s -count=5 ./pkg/coordinator \
-            | tee research-artifacts/authorization-policy-microbenchmark.txt
-      - name: Compare authenticated in-memory and file-durable round commits
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -run '^$' -bench '^BenchmarkResearchAuthenticatedRoundTransition$' \
-            -benchmem -benchtime=25x -count=5 ./pkg/coordinator \
-            | tee research-artifacts/round-transition-microbenchmark.txt
-      - name: Capture exact authorization-decision ablation cases
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -race -json -count=1 ./pkg/coordinator -run '^TestResearchAuthorizationDecisionAblation$' \
-            | tee research-artifacts/authorization-ablation-events.jsonl
-      - name: Verify coordinator round availability after participant revocation
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -race -json -count=1 ./pkg/coordinator -run '^TestResearchQuorumAvailabilityWithRevocation$' \
-            | tee research-artifacts/quorum-availability-events.jsonl
-      - name: Capture model-mutation baseline ablation results
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -race -json -count=1 ./pkg/coordinator -run '^TestResearchModelMutationBaselineAblation$' \
-            | tee research-artifacts/model-mutation-baselines.jsonl
-      - name: Evaluate synthetic non-IID FL availability under worker revocation
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/research/fl_churn_study.py --seeds 12 --alpha 0.3 --out research-artifacts/fl-churn
-          test -s research-artifacts/fl-churn/summary.csv
-          test -s research-artifacts/fl-churn/manifest.json
-      - name: Evaluate TLS 1.3, signed-token and durable gRPC FL transition security
-        shell: bash
-        run: |
-          set -euo pipefail
-          go test -race -json -count=3 ./tests -run '^TestResearchE2ETLSRoundRevocationReplay$' | tee research-artifacts/tls-e2e-round-revocation-events.jsonl
-      - name: Upload evidence, including failing runs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ztfl-security-evidence-${{ github.sha }}
-          path: research-artifacts/
-          if-no-files-found: warn
-          retention-days: 90
- \
+            -run '^TestIEEE(PendingRevocationDurabilityAndRecovery|DurableUpdateRevocationOrdering)$' \
             | tee research-artifacts/ieee-p1-durable-ordering-events.jsonl
       - name: Repeat matched in-process authorization microbenchmarks
         shell: bash
