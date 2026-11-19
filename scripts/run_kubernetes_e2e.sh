@@ -59,11 +59,14 @@ docker build --pull -f docker/Dockerfile.worker -t "$WORKER_IMAGE" .
 docker push "$COORDINATOR_IMAGE"
 docker push "$WORKER_IMAGE"
 
+# Docker BuildKit may push an OCI image index (including attestations), not a
+# single-platform image manifest. The registry returns 404 for an unaccepted
+# manifest media type even when the image tag was pushed successfully.
 registry_digest() {
   local repository="$1"
   local digest
   digest="$(curl -fsSI \
-    -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
     "http://127.0.0.1:${REGISTRY_PORT}/v2/${repository}/manifests/${COMMIT_SHA}" \
     | tr -d '\r' \
     | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')"
