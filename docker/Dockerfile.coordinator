@@ -1,4 +1,4 @@
-FROM golang:1.27.3-alpine AS builder
+FROM golang:1.27.4-alpine AS builder
 
 RUN apk add --no-cache protobuf
 WORKDIR /src
@@ -17,7 +17,7 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/coordinator ./cmd/coordinator \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/certgen ./security
 
-FROM golang:1.27.3-alpine AS health-probe-builder
+FROM golang:1.27.4-alpine AS health-probe-builder
 ARG GRPC_HEALTH_PROBE_COMMIT=82e04432a7344c01c56406a6ddf5c8b6841d5a65
 # Compile the commit-pinned probe with security-fixed transitive modules;
 # a bare "go install module@commit" does not allow module-version overrides.
