@@ -159,7 +159,7 @@ func TestIEEEFileBackedRevocationUncertainWriteAndRecovery(t *testing.T) {
 
 			store.failNext(tt.faults...)
 			revoke := &flv1.RevokeRegistrationRequest{
-				NodeId: admin.NodeID, RegistrationId: "registration-"+admin.NodeID,
+				NodeId: admin.NodeID, RegistrationId: "registration-" + admin.NodeID,
 				TargetNodeId: worker.NodeID, Reason: "fault injection after model admission",
 				Security: lifecycleSecurityMetadata([]byte("p1-fault-revocation-0001")),
 			}
